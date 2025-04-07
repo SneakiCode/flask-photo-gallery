@@ -603,7 +603,10 @@ def edit_album(album_id, album):
             params.append(album_id); sql = f"UPDATE albums SET {', '.join(set_clauses)} WHERE id = ?"; db.execute(sql, tuple(params)); db.commit(); print("Album updated.")
             if saved_new_file and old_cover_filename != new_cover_filename and old_cover_filename != DEFAULT_COVER_FILENAME:
                 old_cover_filepath = os.path.join(app.config['UPLOAD_FOLDER'], old_cover_filename)
-                if os.path.exists(old_cover_filepath): try: os.remove(old_cover_filepath); print(f"Deleted old cover: {old_cover_filepath}")
+                if os.path.exists(old_cover_filepath):
+                    try:
+                        os.remove(old_cover_filepath);
+                        print(f"Deleted old cover: {old_cover_filepath}")
                 except OSError as del_e: print(f"Warn: Failed del old cover {old_cover_filepath}: {del_e}"); flash(f"Failed del old cover '{old_cover_filename}'.", 'warning')
             flash("Album details updated!", 'success')
             if renamed_cover: flash(f"Note: New cover '{renamed_cover[0]}' was renamed to '{renamed_cover[1]}'.", 'info_detail')
