@@ -234,94 +234,179 @@ def list_albums():
 
 # app.py - Modify create_album
 
+# app.py - Corrected create_album function
+
+# --- Assumed to be defined elsewhere or near the top ---
+# import secrets
+# MAX_TOTAL_STORAGE_BYTES = 500 * 1024 * 1024 # Example: 500 MB
+# def get_current_upload_size():
+#     # ... implementation to calculate total size of files in UPLOAD_FOLDER ...
+#     total_size = 0
+#     uploads_path = app.config['UPLOAD_FOLDER']
+#     if os.path.exists(uploads_path):
+#         for item in os.listdir(uploads_path):
+#             item_path = os.path.join(uploads_path, item)
+#             if os.path.isfile(item_path):
+#                 try:
+#                     total_size += os.path.getsize(item_path)
+#                 except OSError:
+#                     pass # Ignore files that might disappear or have permission issues
+#     return total_size
+# --------------------------------------------------------
+
+
 @app.route('/albums/new', methods=['GET', 'POST'])
 def create_album():
-    """Handles creating a new album, checking total storage limit for cover."""
+    """Handles creating new album, checking storage, renaming cover on conflict."""
     if request.method == 'POST':
         # --- Get Form Data ---
-        # ... (title, description, password, etc) ...
+        title = request.form.get('title', '').strip()
+        description = request.form.get('description', '').strip()
+        password = request.form.get('password')
+        password_confirm = request.form.get('password_confirm')
         cover_file = request.files.get('cover')
 
         # --- Basic Validation ---
         errors = []
-        # ... (title, file type, password validation) ...
+        hashed_pw = None
         incoming_cover_size = 0
-        if cover_file and cover_file.filename != '' and allowed_file(cover_file.filename):
+
+        if not title:
+            errors.append('Album title is required.')
+        if title == DEFAULT_ALBUM_TITLE:
+            errors.append(f"Cannot use reserved title '{DEFAULT_ALBUM_TITLE}'.")
+
+        # Validate cover file and get its size
+        if cover_file is None or cover_file.filename == '':
+            errors.append('Album cover photo is required.')
+        elif not allowed_file(cover_file.filename):
+            errors.append('Invalid file type for cover photo.')
+        else:
+            # Get file size without permanently moving pointer
             try:
                 original_pos = cover_file.tell()
                 cover_file.seek(0, os.SEEK_END)
                 incoming_cover_size = cover_file.tell()
-                cover_file.seek(original_pos) # Reset pointer
+                cover_file.seek(original_pos) # IMPORTANT: Reset pointer
+                if incoming_cover_size == 0:
+                     errors.append("Cover photo cannot be empty.")
             except Exception as e:
                 print(f"Error getting cover size: {e}")
                 errors.append("Could not determine size of cover image.")
-        elif cover_file is None or cover_file.filename == '':
-             errors.append('Album cover photo is required.') # Already checked but repeat for clarity
 
+        # Validate password
+        if password or password_confirm:
+            if password != password_confirm:
+                errors.append('Passwords do not match.')
+            elif not password:
+                errors.append('Password field cannot be empty if setting a password.')
+            else:
+                hashed_pw = generate_password_hash(password)
+
+        # Handle initial validation errors
         if errors:
             for error in errors: flash(error, 'error')
-            return render_template('create_album.html', title=request.form.get('title', ''), description=request.form.get('description', ''), album=None)
+            return render_template('create_album.html', title=title, description=description, album=None)
 
-        # <<< START STORAGE LIMIT CHECK >>>
-        current_disk_usage = get_current_upload_size()
-        print(f"Current usage: {current_disk_usage} bytes. Incoming cover: {incoming_cover_size} bytes. Limit: {MAX_TOTAL_STORAGE_BYTES} bytes.")
-        if current_disk_usage + incoming_cover_size > MAX_TOTAL_STORAGE_BYTES:
-             available_space_mb = (MAX_TOTAL_STORAGE_BYTES - current_disk_usage) // (1024 * 1024)
-             flash(f"Cannot create album: Adding the cover photo would exceed the total storage limit ({MAX_TOTAL_STORAGE_BYTES // (1024*1024)} MB).", 'error')
-             flash(f"Approximately {available_space_mb} MB remaining.", 'error')
-             return render_template('create_album.html', title=request.form.get('title', ''), description=request.form.get('description', ''), album=None)
-        # <<< END STORAGE LIMIT CHECK >>>
+        # --- Storage Limit Check ---
+        # NOTE: Make sure get_current_upload_size() and MAX_TOTAL_STORAGE_BYTES are implemented/defined
+        try:
+            current_disk_usage = get_current_upload_size() # Replace with your function
+            print(f"Current usage: {current_disk_usage} bytes. Incoming cover: {incoming_cover_size} bytes. Limit: {MAX_TOTAL_STORAGE_BYTES} bytes.")
+            if current_disk_usage + incoming_cover_size > MAX_TOTAL_STORAGE_BYTES:
+                 available_space_mb = max(0, (MAX_TOTAL_STORAGE_BYTES - current_disk_usage) // (1024 * 1024)) # Show 0 if already over
+                 flash(f"Cannot create album: Adding cover photo would exceed storage limit ({MAX_TOTAL_STORAGE_BYTES // (1024*1024)} MB).", 'error')
+                 flash(f"Approx. {available_space_mb} MB remaining.", 'error_detail')
+                 return render_template('create_album.html', title=title, description=description, album=None)
+        except NameError:
+             print("WARNING: Storage limit check skipped (MAX_TOTAL_STORAGE_BYTES or get_current_upload_size not defined).")
+        except Exception as e:
+             print(f"Error checking storage limit: {e}")
+             flash("Could not verify storage limit.", "warning")
 
-        # --- Check Title Uniqueness ---
-        # ... (db check for title) ...
 
-        # --- Check Cover Filename Conflict & Rename ---
-        # ... (conflict check and rename logic using secrets.token_hex) ...
-        # ... Make sure this uses the cover_file object ...
+        # --- Define DB Connection HERE ---
+        db = get_db() # <<< MOVED: Define db connection BEFORE using it for checks
+
+        # --- Check Title Uniqueness (using db) ---
+        if db.execute('SELECT id FROM albums WHERE title = ?', (title,)).fetchone():
+             flash(f"Album title '{title}' already exists.", 'error')
+             return render_template('create_album.html', title=title, description=description, album=None)
+
+        # --- Check Cover Filename Conflict & Rename (using db) ---
         original_cover_filename = cover_file.filename
         filename = secure_filename(original_cover_filename)
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         renamed_cover = None
         conflict = False
+        # Check disk, photos table, and albums table for conflicts
         if os.path.exists(filepath) or \
            db.execute('SELECT 1 FROM photos WHERE filename = ?', (filename,)).fetchone() or \
-           db.execute('SELECT 1 FROM albums WHERE cover_filename = ?', (filename,)).fetchone(): conflict = True
+           db.execute('SELECT 1 FROM albums WHERE cover_filename = ?', (filename,)).fetchone():
+            conflict = True
+
         if conflict:
-            was_renamed = False; attempts = 0; max_attempts = 5; base, ext = os.path.splitext(filename)
+            was_renamed = False; attempts = 0; max_attempts = 5
+            base, ext = os.path.splitext(filename)
             while conflict and attempts < max_attempts:
-                 attempts += 1; suffix = secrets.token_hex(3); new_filename_attempt = f"{base}_{suffix}{ext}"
+                 attempts += 1; suffix = secrets.token_hex(3)
+                 new_filename_attempt = f"{base}_{suffix}{ext}"
                  new_filepath_attempt = os.path.join(app.config['UPLOAD_FOLDER'], new_filename_attempt)
+                 # Check new name against disk, photos, and albums
                  conflict = os.path.exists(new_filepath_attempt) or \
                             db.execute('SELECT 1 FROM photos WHERE filename = ?', (new_filename_attempt,)).fetchone() or \
                             db.execute('SELECT 1 FROM albums WHERE cover_filename = ?', (new_filename_attempt,)).fetchone()
-                 if not conflict: renamed_cover = (original_cover_filename, new_filename_attempt); filename = new_filename_attempt; filepath = new_filepath_attempt; was_renamed = True; print(f"Cover conflict for '{original_cover_filename}', renamed to '{filename}'"); break
-            if not was_renamed: flash(f"Cover photo filename '{original_cover_filename}' conflicts, and renaming failed.", 'error'); return render_template('create_album.html', title=title, description=description, album=None)
+                 if not conflict:
+                      renamed_cover = (original_cover_filename, new_filename_attempt)
+                      filename = new_filename_attempt
+                      filepath = new_filepath_attempt
+                      was_renamed = True
+                      print(f"Cover conflict for '{original_cover_filename}', renamed to '{filename}'")
+                      break # Exit rename loop
+            if not was_renamed:
+                 flash(f"Cover photo filename '{original_cover_filename}' conflicts, and renaming failed.", 'error')
+                 return render_template('create_album.html', title=title, description=description, album=None)
 
         # --- Process Creation ---
         try:
-            cover_file.seek(0) # Reset pointer before saving
-            cover_file.save(filepath)
-            if not os.path.exists(filepath): raise IOError("Cover file save failed")
-            cursor = db.execute('INSERT INTO albums (title, description, cover_filename, password_hash) VALUES (?, ?, ?, ?)', (title, description, filename, hashed_pw))
-            db.commit(); flash(f"Album '{title}' created successfully!", 'success')
-            if renamed_cover: flash(f"Note: Cover photo '{renamed_cover[0]}' was renamed to '{renamed_cover[1]}'.", 'info_detail')
+            # Ensure file pointer is at the beginning before saving
+            try:
+                cover_file.seek(0)
+            except ValueError as seek_e:
+                 # Handle cases where the stream might not be seekable (less common for file uploads)
+                 print(f"Warning: Could not seek cover file stream: {seek_e}")
+            cover_file.save(filepath) # Save with final (potentially renamed) filepath
+            if not os.path.exists(filepath):
+                raise IOError("Cover file save failed silently.")
+
+            # Insert into DB
+            cursor = db.execute(
+                'INSERT INTO albums (title, description, cover_filename, password_hash) VALUES (?, ?, ?, ?)',
+                (title, description, filename, hashed_pw) # Use final (potentially renamed) filename
+            )
+            db.commit()
+            flash(f"Album '{title}' created successfully!", 'success')
+            if renamed_cover:
+                flash(f"Note: Cover photo '{renamed_cover[0]}' was renamed to '{renamed_cover[1]}'.", 'info_detail')
             return redirect(url_for('list_albums'))
+
         except Exception as e:
-            print(f"Error creating album: {e}"); flash(f"Error creating album: {e}", 'error')
+            print(f"Error during album creation final step: {e}")
+            flash(f"Error creating album: {e}", 'error')
+            # Cleanup potentially saved file
             if os.path.exists(filepath):
-            # Indent this block
+                # --- Correctly Indented Cleanup Block ---
                 try:
                     os.remove(filepath) # Or os.unlink()
                     print(f"  Cleaned up cover file after error: {filepath}")
                 except OSError as cleanup_e:
                     print(f"  Error during cover file cleanup: {cleanup_e}")
                     pass # Ignore cleanup error
-            #    Ensure this return is outside the 'if os.path.exists...' but inside the except
+                # --- End Cleanup Block ---
             return render_template('create_album.html', title=title, description=description, album=None)
 
-    # GET request
+    # --- Handle GET request ---
     return render_template('create_album.html', album=None)
-
 
 @app.route('/albums/<int:album_id>/authorize', methods=['GET', 'POST'])
 def authorize_album(album_id):
