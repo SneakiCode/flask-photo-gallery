@@ -607,8 +607,9 @@ def edit_album(album_id, album):
                     try:
                         os.remove(old_cover_filepath);
                         print(f"Deleted old cover: {old_cover_filepath}")
-                except OSError as del_e: print(f"Warn: Failed del old cover {old_cover_filepath}: {del_e}"); flash(f"Failed del old cover '{old_cover_filename}'.", 'warning')
-            flash("Album details updated!", 'success')
+                    except OSError as del_e:
+                        print(f"Warn: Failed del old cover {old_cover_filepath}: {del_e}"); flash(f"Failed del old cover '{old_cover_filename}'.", 'warning')
+                        flash("Album details updated!", 'success')
             if renamed_cover: flash(f"Note: New cover '{renamed_cover[0]}' was renamed to '{renamed_cover[1]}'.", 'info_detail')
             return redirect(url_for('album_home', album_id=album_id))
         except Exception as e:
