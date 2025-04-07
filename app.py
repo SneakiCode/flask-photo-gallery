@@ -443,7 +443,12 @@ def upload_photo_to_album(album_id, album):
                 cursor = db.execute('INSERT INTO photos (album_id, filename, caption) VALUES (?, ?, ?)', (album_id, filename, caption if caption else None)); db.commit(); success_count += 1
             except Exception as e:
                 print(f"EXC upload {original_filename} (final name: {filename}): {e}"); error_messages.append(f'Server error uploading "{original_filename}".')
-                if os.path.exists(filepath): try: os.remove(filepath); print(f"Cleaned up failed upload: {filepath}"); except OSError: pass
+                if os.path.exists(filepath):
+                    try:
+                        
+                        os.remove(filepath);
+                        print(f"Cleaned up failed upload: {filepath}");
+                    except OSError: pass
         # --- End loop ---
 
         # (Flash messages remain the same)
