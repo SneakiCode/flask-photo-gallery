@@ -1,0 +1,76 @@
+{# templates/edit_album.html #}
+{% extends 'base.html' %}
+
+{% block title %}Edit Album: {{ album.title }}{% endblock %}
+
+{% block content %}
+    {# Use album object passed from route for title etc. #}
+    <h1>Edit Album: {{ album.title | e }}</h1>
+
+    {# Display validation errors if any #}
+    {% with messages = get_flashed_messages(category_filter=['error']) %}
+      {% if messages %}
+        <ul class="flashes">
+          {% for message in messages %}
+            <li class="error">{{ message }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
+
+    {# Use POST method and multipart encoding for file upload #}
+    <form method="POST" enctype="multipart/form-data" style="max-width: 600px; margin: 20px auto; padding: 20px; background-color: #FFF4D9; border: 2px solid #3B1D1F; border-radius: 8px; box-shadow: 3px 3px 0px #3B1D1F;">
+
+        {# Album Title - Disable if it's the default album #}
+        <div class="form-group">
+            <label for="title">Album Title:</label>
+            <input type="text" name="title" id="title"
+                   value="{{ current_title or album.title }}" required maxlength="100"
+                   {% if album.title == DEFAULT_ALBUM_TITLE %}readonly title="Cannot change title of default album" style="background-color: #eee; cursor: not-allowed;"{% endif %}>
+             {% if album.title == DEFAULT_ALBUM_TITLE %}
+                 <small style="color: #555;">(Cannot change title of the default album)</small>
+             {% endif %}
+        </div>
+
+        {# Description - Optional #}
+        <div class="form-group">
+            <label for="description">Description:</label>
+            <textarea name="description" id="description" rows="4" style="width: 95%; max-width: 500px;">{{ current_description or album.description or '' }}</textarea>
+             <small>Optional description for the album.</small>
+        </div>
+
+        {# --- Current Cover Preview (Optional but helpful) --- #}
+         <div class="form-group">
+             <label>Current Cover:</label>
+             <img src="{{ url_for('uploaded_file', filename=album.cover_filename) }}" alt="Current Cover" style="max-width: 100px; max-height: 100px; border: 1px solid #ccc; border-radius: 4px; margin-left: 10px; vertical-align: middle;">
+         </div>
+
+        {# New Cover Image - Optional #}
+        <div class="form-group">
+            <label for="cover">Upload New Cover Photo (Optional):</label>
+            <input type="file" name="cover" id="cover" accept="image/png, image/jpeg, image/gif">
+            <small>Leave blank to keep the current cover image.</small>
+        </div>
+
+        {# --- Password Fields - Optional --- #}
+        <hr style="border: none; border-top: 1px dashed #FFA69E; margin: 20px 0;">
+        <p style="font-weight: bold; color: #3B1D1F;">Change Album Password (Optional):</p>
+        <small>Leave both fields blank to keep the current password setting (including keeping it public if it has no password).</small>
+
+        <div class="form-group" style="margin-top: 10px;">
+            <label for="password">New Password:</label>
+            <input type="password" name="password" id="password" autocomplete="new-password">
+        </div>
+         <div class="form-group">
+            <label for="password_confirm">Confirm New Password:</label>
+            <input type="password" name="password_confirm" id="password_confirm" autocomplete="new-password">
+        </div>
+        {# --- End Password Fields --- #}
+
+        <br>
+        <button type="submit" class="button edit-button">Save Changes</button>
+        {# Link back to the specific album's home page #}
+        <a href="{{ url_for('album_home', album_id=album.id) }}" class="cancel-link" style="margin-left: 15px;">Cancel</a>
+    </form>
+
+{% endblock %}

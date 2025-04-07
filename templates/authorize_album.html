@@ -1,0 +1,29 @@
+{# templates/authorize_album.html #}
+{% extends 'base.html' %}
+
+{% block title %}Authorize Access - {{ album.title }}{% endblock %}
+
+{% block content %}
+    <h1>Enter Password for Album: {{ album.title | e }}</h1>
+
+    {% with messages = get_flashed_messages(category_filter=['error', 'info']) %}
+      {% if messages %}
+        <ul class="flashes">
+          {% for message in messages %}
+            <li class="{{ 'error' if 'Incorrect password' in message else 'info' }}">{{ message }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
+
+    <form method="POST" style="max-width: 400px; margin: 20px auto; text-align: center;">
+        <div class="form-group">
+            <label for="password">Password:</label>
+            <input type="password" name="password" id="password" required autofocus style="margin: 0 auto 15px auto;">
+             {# Make password input centered #}
+        </div>
+        <button type="submit" class="button edit-button">Enter Album</button>
+         <a href="{{ url_for('list_albums') }}" class="cancel-link" style="margin-left: 15px;">Cancel</a>
+    </form>
+
+{% endblock %}

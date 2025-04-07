@@ -1,17 +1,81 @@
+{# templates/index.html - Removed description and danger zone #}
 {% extends 'base.html' %}
 
-{% block title %}Welcome!{% endblock %}
+{% block title %}Photo Albums{% endblock %}
 
 {% block content %}
-    <h1>Welcome to the Retro Photo Gallery!</h1>
+    <h1>Photo Albums</h1>
 
-    <p style="text-align: center; margin-bottom: 30px;">What would you like to do?</p>
-
-    <div class="home-navigation" style="text-align: center;">
-        {# Use existing button styles #}
-        <p><a href="{{ url_for('upload_page') }}" class="button">Upload New Photos</a></p>
-        <p><a href="{{ url_for('random_display_page') }}" class="button random-button">View a Random Photo</a></p>
-        <p><a href="{{ url_for('manage_photos') }}" class="button edit-button">Manage Your Photos</a></p>
+    <div style="text-align: center; margin-bottom: 25px;">
+        <a href="{{ url_for('create_album') }}" class="button edit-button">Create New Album</a>
     </div>
+
+    {% if albums %}
+        <div class="photo-management-grid">
+            {% for album in albums %}
+                <div class="photo-item">
+                    {# Link still goes to album_home, decorator handles auth #}
+                    <a href="{{ url_for('album_home', album_id=album.id) }}" style="text-decoration: none; color: inherit; display: flex; flex-direction: column; height: 100%;">
+                        <div class="photo-thumbnail">
+                            <img src="{{ url_for('uploaded_file', filename=album.cover_filename) }}"
+                                 alt="Cover for {{ album.title | e }}"
+                                 loading="lazy">
+                        </div>
+                        <div class="photo-details" style="flex-grow: 1;">
+                             {# Display Album Title and Lock Icon #}
+                            <h3 style="margin: 10px 0 5px 0; font-size: 1.1em;">
+                                {{ album.title | e }} {% if album.password_hash %}🔒{% endif %}
+                            </h3>
+                            {# Description Removed from this view #}
+                        </div>
+                    </a>
+                     {# Delete Album button #}
+                     <div class="photo-actions">
+                         {# Prevent deleting the default album from this screen #}
+                         {# Note: We need DEFAULT_ALBUM_TITLE passed from the route #}
+                         {% if album.title != DEFAULT_ALBUM_TITLE %}
+                             <form method="post" action="{{ url_for('delete_album', album_id=album.id) }}" style="display: inline;"
+                                   onsubmit="return confirm('Delete album \'{{ album.title | escape | replace("'", "\\'") }}\' and ALL its photos? This cannot be undone!');">
+                                 <button type="submit" class="button delete-button" title="Delete Album">Delete Album</button>
+                             </form>
+                         {% else %}
+                             <span style="font-size: 0.8em; color: #888;">(Cannot delete default)</span>
+                         {% endif %}
+                     </div>
+                </div>
+            {% endfor %}
+        </div>
+
+        {# --- Pagination --- #}
+         {% if total_pages > 1 %}
+             <nav class="pagination" aria-label="Album navigation">
+                <ul>
+                    {% if current_page > 1 %}
+                    <li><a href="{{ url_for('list_albums', page=current_page - 1) }}" class="page-link prev">« Previous</a></li>
+                    {% else %}
+                    <li class="disabled"><span class="page-link prev">« Previous</span></li>
+                    {% endif %}
+                    {% for page_num in range(1, total_pages + 1) %}
+                        {% if page_num == current_page %}
+                        <li class="active"><span class="page-link current">{{ page_num }}</span></li>
+                        {% else %}
+                        <li><a href="{{ url_for('list_albums', page=page_num) }}" class="page-link">{{ page_num }}</a></li>
+                        {% endif %}
+                    {% endfor %}
+                    {% if current_page < total_pages %}
+                    <li><a href="{{ url_for('list_albums', page=current_page + 1) }}" class="page-link next">Next »</a></li>
+                    {% else %}
+                    <li class="disabled"><span class="page-link next">Next »</span></li>
+                    {% endif %}
+                </ul>
+             </nav>
+         {% endif %}
+         {# --- End Pagination --- #}
+
+    {% else %}
+        <p>No albums found. Why not create one?</p>
+    {% endif %}
+
+    {# "Delete Everything" Danger Zone Completely Removed #}
 
 {% endblock %}

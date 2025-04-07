@@ -284,3 +284,34 @@ a.cancel-link:hover { background-color: #E0E0E0; color: #1E1E1E; }
     margin-left: 20px; /* Indent details */
     box-shadow: 1px 1px 0px 0px #3B1D1F;
 }
+
+/* Detail messages (indented, less prominent) */
+.flashes li.error_detail,
+.flashes li.info_detail,
+.flashes li.warning_detail {
+    font-weight: normal;
+    font-size: 0.9em;
+    margin-left: 20px;
+    margin-top: -5px; /* Pull up slightly below parent */
+    margin-bottom: 10px;
+    box-shadow: none; /* No shadow */
+    border-style: dashed; /* Dashed border */
+    border-radius: 0 0 8px 8px; /* Round bottom corners */
+}
+
+/* Specific background/colors for detail types */
+.flashes li.error_detail {
+    background-color: #FFE4E0;
+    color: #A3031E;
+    border-color: #A3031E;
+}
+.flashes li.info_detail {
+    background-color: #e6f7ff; /* Lighter blueish */
+    color: #00568A;
+    border-color: #00568A;
+}
+ .flashes li.warning_detail {
+    background-color: #fff9e6; /* Lighter yellow/orange */
+    color: #856404;
+    border-color: #856404;
+}

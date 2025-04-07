@@ -1,28 +1,41 @@
+# app.py (With Conflict Renaming Logic)
+
 import os
 import sqlite3
 import random
-import csv
-import datetime # Needed for debug timestamps
-import math # Needed for pagination (math.ceil)
-import shutil # Needed for potentially removing the whole uploads folder safely
-from flask import Flask, render_template, request, redirect, url_for, flash, send_from_directory, g, abort, jsonify
+import math
+import shutil
+import secrets # Needed for renaming
+from functools import wraps
+from flask import (Flask, render_template, request, redirect, url_for,
+                   flash, send_from_directory, g, abort, jsonify,
+                   session)
 from werkzeug.utils import secure_filename
+from werkzeug.security import generate_password_hash, check_password_hash
+import secrets # Needed for generating random hex for renaming
+from werkzeug.exceptions import RequestEntityTooLarge
 
-# --- Configuration ---
+# --- Constants and Configuration ---
 DATABASE = 'database.db'
 UPLOAD_FOLDER = 'uploads'
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'} # Allowed image file types
-ITEMS_PER_PAGE = 15 # Pagination limit
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+ITEMS_PER_PAGE = 15
+ALBUMS_PER_PAGE = 10
+SECRET_KEY_FOR_FLASK = 'BZD:p8CEiu*o%k@Y!dYJN1xF!m:+5d' # <<< MUST BE STRONG AND SECRET
+DEFAULT_ALBUM_TITLE = 'General Photos'
+DEFAULT_COVER_FILENAME = 'default_cover.png'
+MAX_TOTAL_STORAGE_BYTES = 500 * 1024 * 1024
 
+# --- Create Flask App Instance ---
 app = Flask(__name__)
+
+# --- Apply Configuration to the App Instance ---
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['SECRET_KEY'] = 'your_very_secret_key_here_please_change' # CHANGE THIS!
-app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024 # Increased limit for multiple files (e.g., 32MB)
+app.config['SECRET_KEY'] = SECRET_KEY_FOR_FLASK
+app.config['MAX_CONTENT_LENGTH'] = 128 * 1024 * 1024
 
 # --- Database Helper Functions ---
-# (get_db, close_db, init_db, get_photo remain the same)
 def get_db():
-    """Opens a new database connection if there is none yet for the current application context."""
     if 'db' not in g:
         g.db = sqlite3.connect(DATABASE)
         g.db.row_factory = sqlite3.Row
@@ -30,393 +43,647 @@ def get_db():
 
 @app.teardown_appcontext
 def close_db(error):
-    """Closes the database again at the end of the request."""
     if hasattr(g, 'db'):
         g.db.close()
 
 def init_db():
-    """Initializes the database schema."""
-    if not os.path.exists(UPLOAD_FOLDER):
-        os.makedirs(UPLOAD_FOLDER)
-        print(f"Created uploads folder: {UPLOAD_FOLDER}")
+    """Initializes the database schema AND clears the uploads folder (except default cover)."""
+    uploads_path = app.config['UPLOAD_FOLDER']
+
+    # --- 1. Clear Uploads Folder (Except Default Cover) ---
+    if os.path.exists(uploads_path):
+        print(f"Clearing contents of folder: {uploads_path} (excluding {DEFAULT_COVER_FILENAME})")
+        for filename in os.listdir(uploads_path):
+            if filename == DEFAULT_COVER_FILENAME:
+                print(f"  Skipping deletion of {DEFAULT_COVER_FILENAME}")
+                continue
+
+            filepath = os.path.join(uploads_path, filename)
+            try:
+                if os.path.isfile(filepath) or os.path.islink(filepath): os.unlink(filepath)
+                elif os.path.isdir(filepath): shutil.rmtree(filepath)
+            except Exception as e: print(f'  Failed to delete {filepath}. Reason: {e}')
+    else:
+        os.makedirs(uploads_path); print(f"Created uploads folder: {uploads_path}")
+
+    # Ensure default cover exists AFTER potential cleanup/creation
+    default_cover_path = os.path.join(uploads_path, DEFAULT_COVER_FILENAME)
+    if not os.path.exists(default_cover_path): print(f"WARNING: Default cover '{DEFAULT_COVER_FILENAME}' not found in '{uploads_path}' after cleanup.")
+
+    # --- 2. Initialize Database Schema ---
     with app.app_context():
         db = get_db()
         try:
-            with app.open_resource('schema.sql', mode='r') as f:
-                db.cursor().executescript(f.read())
-            db.commit()
-            print("Database schema initialized!")
-        except Exception as e:
-            print(f"Error initializing database schema: {e}")
+            schema_path = os.path.join(os.path.dirname(__file__), 'schema.sql')
+            if not os.path.exists(schema_path): raise FileNotFoundError(f"schema.sql not found at {schema_path}")
+            with open(schema_path, mode='r') as f: db.cursor().executescript(f.read())
+            db.commit(); print("Database schema initialized!")
+        except Exception as e: print(f"Error initializing database schema: {e}")
 
-def get_photo(photo_id):
-    """Gets photo data by its ID."""
+# --- Album & Photo Helpers ---
+def get_album(album_id, check_exists=True):
     db = get_db()
-    photo = db.execute(
-        'SELECT id, filename, caption FROM photos WHERE id = ?', (photo_id,)
-    ).fetchone()
-    if photo is None:
-        abort(404, f"Photo id {photo_id} doesn't exist.")
+    album = db.execute('SELECT id, title, description, cover_filename, password_hash FROM albums WHERE id = ?', (album_id,)).fetchone()
+    if album is None and check_exists: abort(404, f"Album id {album_id} doesn't exist.")
+    return album
+
+def get_photo(photo_id, album_id=None, check_exists=True):
+    db = get_db()
+    query = 'SELECT id, filename, caption, album_id FROM photos WHERE id = ?'
+    params = (photo_id,)
+    if album_id is not None: query += ' AND album_id = ?'; params += (album_id,)
+    photo = db.execute(query, params).fetchone()
+    if photo is None and check_exists: abort(404, f"Photo id {photo_id} doesn't exist" + (f" in album {album_id}." if album_id else "."))
+    if album_id is not None and photo and photo['album_id'] != album_id and check_exists: abort(403, f"Photo id {photo_id} does not belong to album id {album_id}.")
     return photo
 
-# --- Helper Function for File Uploads ---
-# (allowed_file remains the same)
 def allowed_file(filename):
-    """Checks if the filename has an allowed extension."""
-    return '.' in filename and \
-           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 # --- Flask CLI Commands ---
-# (init_db_command, seed_db_command remain the same)
 @app.cli.command('init-db')
 def init_db_command():
-    """Clear existing data and create new tables."""
-    if os.path.exists(DATABASE):
-         print(f"WARNING: Database '{DATABASE}' already exists. Re-initializing will delete all data.")
+    if os.path.exists(DATABASE): print(f"WARNING: Re-initializing will delete {DATABASE}.")
     init_db()
-    # Optional: Add a prompt here asking if user wants to delete existing uploads folder content during init
 
-@app.cli.command('seed-db')
-def seed_db_command():
-    """Seeds the database from photo_data.csv."""
-    csv_filepath = 'photo_data.csv'
-    if not os.path.exists(csv_filepath):
-        print(f"Error: '{csv_filepath}' not found. Please create it.")
-        return
-    added_count = 0
-    skipped_count = 0
-    missing_file_count = 0
-    try:
-        with open(csv_filepath, mode='r', encoding='utf-8') as infile:
-            reader = csv.DictReader(infile)
-            with app.app_context():
-                db = get_db()
-                cursor = db.cursor()
-                processed_in_seed = set()
-                for row in reader:
-                    filename = row.get('filename', '').strip()
-                    caption = row.get('caption', '').strip()
-                    if not filename or not caption:
-                        print(f"Warning: Skipping row with missing filename or caption: {row}")
-                        skipped_count += 1
-                        continue
-                    secure_name = secure_filename(filename)
-                    if secure_name != filename:
-                         print(f"Warning: Filename '{filename}' sanitized to '{secure_name}'. Using original for lookup, secure for DB.")
-                         filename_to_store = secure_name # Store secure name
-                    else:
-                         filename_to_store = filename
-
-                    image_path_original = os.path.join(app.config['UPLOAD_FOLDER'], filename) # Check original first
-                    image_path_secure = os.path.join(app.config['UPLOAD_FOLDER'], secure_name)
-                    actual_image_path = None
-
-                    if os.path.exists(image_path_secure):
-                        actual_image_path = image_path_secure
-                    elif os.path.exists(image_path_original):
-                        actual_image_path = image_path_original
-                        print(f"Info: Found original filename '{filename}' in uploads, will use secure name '{secure_name}' in DB.")
-                    else:
-                        print(f"Warning: Image file not found in uploads folder (checked '{filename}' and '{secure_name}'). Skipping database entry.")
-                        missing_file_count += 1
-                        continue
-
-                    # Prevent duplicate filenames *within the CSV processing*
-                    if filename_to_store in processed_in_seed:
-                         print(f"Info: Filename '{filename_to_store}' already processed in this seed run. Skipping.")
-                         skipped_count +=1
-                         continue
-
-                    existing = cursor.execute('SELECT id FROM photos WHERE filename = ?', (filename_to_store,)).fetchone()
-                    if existing:
-                        print(f"Info: Filename '{filename_to_store}' already exists in DB. Skipping.")
-                        skipped_count += 1
-                        continue
-                    try:
-                        cursor.execute('INSERT INTO photos (filename, caption) VALUES (?, ?)',
-                                       (filename_to_store, caption))
-                        added_count += 1
-                        processed_in_seed.add(filename_to_store) # Mark as processed
-                    except Exception as insert_e:
-                        print(f"Error inserting row {row}: {insert_e}")
-                        skipped_count += 1
-                db.commit()
-        print("-" * 20)
-        print("Seeding complete!")
-        print(f"Added: {added_count} new photo entries.")
-        print(f"Skipped: {skipped_count}")
-        print(f"Missing image files: {missing_file_count}")
-        print("-" * 20)
-    except FileNotFoundError:
-        print(f"Error: '{csv_filepath}' not found.")
-    except Exception as e:
-        print(f"An error occurred during seeding: {e}")
-
+# --- Access Control Decorator ---
+def album_access_required(f):
+    @wraps(f)
+    def decorated_function(album_id, *args, **kwargs):
+        album = get_album(album_id)
+        if album['password_hash']:
+            if 'authorized_album_ids' not in session: session['authorized_album_ids'] = []
+            if album_id not in session['authorized_album_ids']:
+                flash(f"Password required to access album '{album['title']}'.", 'info')
+                return redirect(url_for('authorize_album', album_id=album_id))
+        return f(album_id=album_id, album=album, *args, **kwargs)
+    return decorated_function
 
 # --- Routes ---
 
-# --- NEW: Main Index/Homepage Route ---
 @app.route('/')
-def index_page():
-    """Displays the main introduction/navigation page."""
-    return render_template('index.html')
-# --- END NEW ROUTE ---
+def introduction():
+    """Displays the main introduction/landing page."""
+    return render_template('intro.html', album=None)
 
-# --- UPDATED: Upload Page Route (Moved from / to /upload) ---
-@app.route('/upload', methods=['GET', 'POST']) # <<< URL CHANGED
-def upload_page():
-    """Handles single or multiple photo uploads via web form."""
+# app.py - Add this helper function
+
+def get_current_upload_size():
+    """Calculates the total size of files currently in the UPLOAD_FOLDER."""
+    total_size = 0
+    upload_path = app.config['UPLOAD_FOLDER']
+    try:
+        if os.path.exists(upload_path):
+            for item in os.listdir(upload_path):
+                item_path = os.path.join(upload_path, item)
+                if os.path.isfile(item_path):
+                    try:
+                        total_size += os.path.getsize(item_path)
+                    except OSError as e:
+                        print(f"Warning: Could not get size of {item_path}: {e}")
+    except Exception as e:
+        print(f"Error calculating upload size: {e}")
+        # Return a large value on error to potentially prevent uploads? Or 0?
+        # Let's return 0 and log the error, assuming it's temporary.
+        return 0
+    return total_size
+
+@app.errorhandler(RequestEntityTooLarge)
+def handle_too_large(e):
+    """Custom handler for 413 Request Entity Too Large error."""
+    print(f"Intercepted RequestEntityTooLarge error: {e}") # Log the error details server-side
+
+    # Determine where to redirect based on the request path that failed
+    # This helps send the user back to the correct upload form
+    failed_path = request.path
+    redirect_url = url_for('list_albums') # Default redirect
+    album_id_for_redirect = None
+
+    # Try to extract album_id if it was an album photo upload
+    # Example path: /albums/5/upload
+    path_parts = failed_path.strip('/').split('/')
+    if len(path_parts) >= 3 and path_parts[0] == 'albums' and path_parts[2] == 'upload':
+        try:
+            album_id_for_redirect = int(path_parts[1])
+            redirect_url = url_for('upload_photo_to_album', album_id=album_id_for_redirect)
+        except (ValueError, IndexError):
+            # Couldn't parse album_id, use default redirect
+            pass
+    elif failed_path == url_for('create_album'): # Check if it was the create album cover upload
+         redirect_url = url_for('create_album')
+    # Add elif for edit_album cover if necessary
+    elif len(path_parts) >= 3 and path_parts[0] == 'albums' and path_parts[2] == 'edit':
+         try:
+             album_id_for_redirect = int(path_parts[1])
+             redirect_url = url_for('edit_album', album_id=album_id_for_redirect)
+         except (ValueError, IndexError):
+             pass
+
+
+    # Flash a user-friendly message
+    flash(f"Upload failed: The total size of the selected files exceeds the limit ({app.config['MAX_CONTENT_LENGTH'] // (1024*1024)} MB). Please select fewer files or smaller images.", 'error')
+
+    # Redirect the user back to the appropriate form
+    return redirect(redirect_url)
+
+@app.route('/albums')
+def list_albums():
+    """Displays the list of albums with pagination, ensuring default is first."""
+    try:
+        page = int(request.args.get('page', 1))
+    except ValueError:
+        page = 1
+    if page < 1: page = 1
+
+    limit = ALBUMS_PER_PAGE
+    offset = (page - 1) * limit
+    db = get_db()
+    albums_on_page = []
+    total_items = 0
+    total_pages = 0
+
+    try:
+        # Count total albums (doesn't need special order)
+        total_items = db.execute('SELECT COUNT(id) FROM albums').fetchone()[0]
+
+        if total_items > 0:
+            total_pages = math.ceil(total_items / limit)
+            # Redirect if page number is out of bounds
+            if page > total_pages and total_pages > 0:
+                return redirect(url_for('list_albums', page=total_pages))
+
+            # <<< MODIFIED QUERY: Use CASE for sorting >>>
+            # Order by 0 if it's the default album, 1 otherwise, then by title
+            query = """
+                SELECT id, title, description, cover_filename, password_hash
+                FROM albums
+                ORDER BY
+                    CASE WHEN title = ? THEN 0 ELSE 1 END,
+                    title ASC
+                LIMIT ? OFFSET ?
+            """
+            albums_on_page = db.execute(query, (DEFAULT_ALBUM_TITLE, limit, offset)).fetchall()
+            # <<< END MODIFIED QUERY >>>
+
+    except Exception as e:
+        print(f"Error fetching albums: {e}")
+        flash("Could not retrieve albums.", "error")
+
+    # Pass DEFAULT_ALBUM_TITLE to template for conditional logic (like the delete button)
+    return render_template('index.html', albums=albums_on_page, current_page=page, total_pages=total_pages, album=None, DEFAULT_ALBUM_TITLE=DEFAULT_ALBUM_TITLE)
+
+# app.py - Modify create_album
+
+@app.route('/albums/new', methods=['GET', 'POST'])
+def create_album():
+    """Handles creating a new album, checking total storage limit for cover."""
     if request.method == 'POST':
-        uploaded_files = request.files.getlist('photos') # Use getlist for multiple files
-        captions = request.form.getlist('captions')     # Use getlist for multiple captions
+        # --- Get Form Data ---
+        # ... (title, description, password, etc) ...
+        cover_file = request.files.get('cover')
+
+        # --- Basic Validation ---
+        errors = []
+        # ... (title, file type, password validation) ...
+        incoming_cover_size = 0
+        if cover_file and cover_file.filename != '' and allowed_file(cover_file.filename):
+            try:
+                original_pos = cover_file.tell()
+                cover_file.seek(0, os.SEEK_END)
+                incoming_cover_size = cover_file.tell()
+                cover_file.seek(original_pos) # Reset pointer
+            except Exception as e:
+                print(f"Error getting cover size: {e}")
+                errors.append("Could not determine size of cover image.")
+        elif cover_file is None or cover_file.filename == '':
+             errors.append('Album cover photo is required.') # Already checked but repeat for clarity
+
+        if errors:
+            for error in errors: flash(error, 'error')
+            return render_template('create_album.html', title=request.form.get('title', ''), description=request.form.get('description', ''), album=None)
+
+        # <<< START STORAGE LIMIT CHECK >>>
+        current_disk_usage = get_current_upload_size()
+        print(f"Current usage: {current_disk_usage} bytes. Incoming cover: {incoming_cover_size} bytes. Limit: {MAX_TOTAL_STORAGE_BYTES} bytes.")
+        if current_disk_usage + incoming_cover_size > MAX_TOTAL_STORAGE_BYTES:
+             available_space_mb = (MAX_TOTAL_STORAGE_BYTES - current_disk_usage) // (1024 * 1024)
+             flash(f"Cannot create album: Adding the cover photo would exceed the total storage limit ({MAX_TOTAL_STORAGE_BYTES // (1024*1024)} MB).", 'error')
+             flash(f"Approximately {available_space_mb} MB remaining.", 'error')
+             return render_template('create_album.html', title=request.form.get('title', ''), description=request.form.get('description', ''), album=None)
+        # <<< END STORAGE LIMIT CHECK >>>
+
+        # --- Check Title Uniqueness ---
+        # ... (db check for title) ...
+
+        # --- Check Cover Filename Conflict & Rename ---
+        # ... (conflict check and rename logic using secrets.token_hex) ...
+        # ... Make sure this uses the cover_file object ...
+        original_cover_filename = cover_file.filename
+        filename = secure_filename(original_cover_filename)
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        renamed_cover = None
+        conflict = False
+        if os.path.exists(filepath) or \
+           db.execute('SELECT 1 FROM photos WHERE filename = ?', (filename,)).fetchone() or \
+           db.execute('SELECT 1 FROM albums WHERE cover_filename = ?', (filename,)).fetchone(): conflict = True
+        if conflict:
+            was_renamed = False; attempts = 0; max_attempts = 5; base, ext = os.path.splitext(filename)
+            while conflict and attempts < max_attempts:
+                 attempts += 1; suffix = secrets.token_hex(3); new_filename_attempt = f"{base}_{suffix}{ext}"
+                 new_filepath_attempt = os.path.join(app.config['UPLOAD_FOLDER'], new_filename_attempt)
+                 conflict = os.path.exists(new_filepath_attempt) or \
+                            db.execute('SELECT 1 FROM photos WHERE filename = ?', (new_filename_attempt,)).fetchone() or \
+                            db.execute('SELECT 1 FROM albums WHERE cover_filename = ?', (new_filename_attempt,)).fetchone()
+                 if not conflict: renamed_cover = (original_cover_filename, new_filename_attempt); filename = new_filename_attempt; filepath = new_filepath_attempt; was_renamed = True; print(f"Cover conflict for '{original_cover_filename}', renamed to '{filename}'"); break
+            if not was_renamed: flash(f"Cover photo filename '{original_cover_filename}' conflicts, and renaming failed.", 'error'); return render_template('create_album.html', title=title, description=description, album=None)
+
+        # --- Process Creation ---
+        try:
+            cover_file.seek(0) # Reset pointer before saving
+            cover_file.save(filepath)
+            if not os.path.exists(filepath): raise IOError("Cover file save failed")
+            cursor = db.execute('INSERT INTO albums (title, description, cover_filename, password_hash) VALUES (?, ?, ?, ?)', (title, description, filename, hashed_pw))
+            db.commit(); flash(f"Album '{title}' created successfully!", 'success')
+            if renamed_cover: flash(f"Note: Cover photo '{renamed_cover[0]}' was renamed to '{renamed_cover[1]}'.", 'info_detail')
+            return redirect(url_for('list_albums'))
+        except Exception as e:
+            print(f"Error creating album: {e}"); flash(f"Error creating album: {e}", 'error')
+            if os.path.exists(filepath): try: os.remove(filepath); print(f"Cleaned up cover file: {filepath}"); except OSError: pass
+            return render_template('create_album.html', title=title, description=description, album=None)
+
+    # GET request
+    return render_template('create_album.html', album=None)
+
+
+@app.route('/albums/<int:album_id>/authorize', methods=['GET', 'POST'])
+def authorize_album(album_id):
+    """Handles password entry for protected albums."""
+    album = get_album(album_id)
+    if not album['password_hash']: return redirect(url_for('album_home', album_id=album_id))
+
+    if request.method == 'POST':
+        provided_password = request.form.get('password')
+        if check_password_hash(album['password_hash'], provided_password):
+            if 'authorized_album_ids' not in session: session['authorized_album_ids'] = []
+            authorized_ids = session['authorized_album_ids']
+            if album_id not in authorized_ids: authorized_ids.append(album_id)
+            session['authorized_album_ids'] = authorized_ids
+            session.modified = True
+            flash(f"Access granted to album '{album['title']}'.", 'success')
+            return redirect(url_for('album_home', album_id=album_id))
+        else:
+            flash('Incorrect password.', 'error')
+            return redirect(url_for('authorize_album', album_id=album_id))
+
+    # GET request - Pass original album for display, None for nav context
+    return render_template('authorize_album.html', album_for_form=album, album=None)
+
+@app.route('/albums/<int:album_id>')
+@album_access_required
+def album_home(album_id, album):
+    return render_template('album_home.html', album=album)
+
+# app.py - Modify upload_photo_to_album
+
+@app.route('/albums/<int:album_id>/upload', methods=['GET', 'POST'])
+@album_access_required
+def upload_photo_to_album(album_id, album):
+    """Handles uploading photos, checking total storage limit first."""
+    if request.method == 'POST':
+        uploaded_files = request.files.getlist('photos')
+        captions = request.form.getlist('captions') # Captions can be empty
 
         if not uploaded_files or uploaded_files[0].filename == '':
-            flash('No photos selected!', 'error')
-            return redirect(request.url)
-
+            flash('No photos selected!', 'error'); return redirect(url_for('upload_photo_to_album', album_id=album_id))
         if len(uploaded_files) != len(captions):
-            flash('Mismatch between number of files and captions provided.', 'error')
-            print(f"Error: File count ({len(uploaded_files)}) != Caption count ({len(captions)})")
-            return redirect(request.url)
+            flash('Mismatch between files and captions provided.', 'error'); return redirect(url_for('upload_photo_to_album', album_id=album_id))
 
+        # <<< START STORAGE LIMIT CHECK >>>
+        current_disk_usage = get_current_upload_size()
+        incoming_batch_size = 0
+        valid_files_in_request = [] # Store valid files to process later
+
+        # Calculate total size of valid incoming files
+        for i, file in enumerate(uploaded_files):
+            if file and file.filename != '' and allowed_file(file.filename):
+                 # Get file size without saving permanently
+                 try:
+                     # Save current position, seek to end, get size, reset position
+                     original_pos = file.tell()
+                     file.seek(0, os.SEEK_END)
+                     incoming_batch_size += file.tell()
+                     file.seek(original_pos) # IMPORTANT: Reset stream pointer
+                     valid_files_in_request.append({'file_obj': file, 'caption': captions[i].strip(), 'original_filename': file.filename})
+                 except Exception as e:
+                      print(f"Error getting size for {file.filename}: {e}")
+                      flash(f"Could not determine size for {file.filename}, skipping.", "warning")
+
+        print(f"Current usage: {current_disk_usage} bytes. Incoming batch: {incoming_batch_size} bytes. Limit: {MAX_TOTAL_STORAGE_BYTES} bytes.")
+
+        # Check if adding the incoming batch exceeds the total limit
+        if current_disk_usage + incoming_batch_size > MAX_TOTAL_STORAGE_BYTES:
+            available_space_mb = (MAX_TOTAL_STORAGE_BYTES - current_disk_usage) // (1024 * 1024)
+            flash(f"Upload failed: Adding these files would exceed the total storage limit ({MAX_TOTAL_STORAGE_BYTES // (1024*1024)} MB).", 'error')
+            flash(f"Approximately {available_space_mb} MB remaining. Please upload smaller files or fewer files.", 'error')
+            return redirect(url_for('upload_photo_to_album', album_id=album_id))
+        # <<< END STORAGE LIMIT CHECK >>>
+
+
+        # --- Process only the valid files identified earlier ---
         success_count = 0
+        skipped_batch_duplicates = []
+        renamed_files = []
         error_messages = []
         processed_filenames_in_batch = set()
-
         db = get_db()
 
-        for i, file in enumerate(uploaded_files):
-            caption = captions[i].strip()
+        for file_data in valid_files_in_request: # Iterate through validated files
+            file = file_data['file_obj']
+            caption = file_data['caption']
+            original_filename = file_data['original_filename']
 
-            if file.filename == '': continue
-            if not caption:
-                error_messages.append(f'Caption missing for file "{file.filename}".')
-                continue
-            if not allowed_file(file.filename):
-                error_messages.append(f'Invalid file type for "{file.filename}".')
-                continue
-
-            original_filename = file.filename
+            # (Rest of the existing logic: secure_filename, check batch duplicates, check conflicts, rename, save, db insert)
+            # ... Make sure to use 'file' (the object) and 'caption' from file_data ...
             filename = secure_filename(original_filename)
+            if filename in processed_filenames_in_batch: skipped_batch_duplicates.append(original_filename); continue
+            processed_filenames_in_batch.add(filename)
             filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            print(f"\nProcessing file {i+1}: '{original_filename}' -> Secure: '{filename}'")
-
-            if filename in processed_filenames_in_batch:
-                 error_messages.append(f'Duplicate filename "{filename}" in this batch.')
-                 continue
-            existing_db = db.execute('SELECT id FROM photos WHERE filename = ?', (filename,)).fetchone()
-            if existing_db:
-                error_messages.append(f'Filename "{filename}" already exists in DB.')
-                continue
-
+            conflict = False
+            if os.path.exists(filepath) or \
+               db.execute('SELECT 1 FROM photos WHERE filename = ?', (filename,)).fetchone() or \
+               db.execute('SELECT 1 FROM albums WHERE cover_filename = ?', (filename,)).fetchone():
+                conflict = True
+            if conflict:
+                was_renamed = False; attempts = 0; max_attempts = 5
+                base, ext = os.path.splitext(filename)
+                while conflict and attempts < max_attempts:
+                    attempts += 1; suffix = secrets.token_hex(3)
+                    new_filename_attempt = f"{base}_{suffix}{ext}"
+                    new_filepath_attempt = os.path.join(app.config['UPLOAD_FOLDER'], new_filename_attempt)
+                    conflict = os.path.exists(new_filepath_attempt) or \
+                               db.execute('SELECT 1 FROM photos WHERE filename = ?', (new_filename_attempt,)).fetchone() or \
+                               db.execute('SELECT 1 FROM albums WHERE cover_filename = ?', (new_filename_attempt,)).fetchone()
+                    if not conflict:
+                        renamed_files.append((original_filename, new_filename_attempt))
+                        filename = new_filename_attempt; filepath = new_filepath_attempt
+                        was_renamed = True; print(f"Conflict for '{original_filename}', renamed to '{filename}'"); break
+                if not was_renamed: error_messages.append(f'Conflict error for "{original_filename}".'); continue
             try:
-                print(f"  Attempting save: {filepath}")
+                file.seek(0) # Ensure pointer is at start before saving
                 file.save(filepath)
                 if not os.path.exists(filepath): raise IOError("File save failed silently.")
-                print(f"  File saved.")
-                print(f"  Attempting DB insert...")
-                cursor = db.execute('INSERT INTO photos (filename, caption) VALUES (?, ?)', (filename, caption))
-                db.commit()
-                print(f"  DB insert successful. Row ID: {cursor.lastrowid}")
-                processed_filenames_in_batch.add(filename)
-                success_count += 1
+                cursor = db.execute('INSERT INTO photos (album_id, filename, caption) VALUES (?, ?, ?)', (album_id, filename, caption if caption else None)); db.commit(); success_count += 1
             except Exception as e:
-                import traceback
-                print(f"---!!! EXCEPTION processing '{filename}' !!!---")
-                print(f"  Error: {e}")
-                traceback.print_exc()
-                error_messages.append(f'Server error uploading "{filename}": {e}')
-                # No cleanup attempted here for simplicity, could be added
-                print(f"--- END EXCEPTION ---")
+                print(f"EXC upload {original_filename} (final name: {filename}): {e}"); error_messages.append(f'Server error uploading "{original_filename}".')
+                if os.path.exists(filepath): try: os.remove(filepath); print(f"Cleaned up failed upload: {filepath}"); except OSError: pass
+        # --- End loop ---
 
-        if success_count > 0:
-            flash(f'{success_count} photo(s) uploaded successfully!', 'success')
-        if error_messages:
-            flash('Some photos could not be uploaded:', 'error')
-            for msg in error_messages:
-                flash(msg, 'error_detail')
+        # (Flash messages remain the same)
+        if success_count > 0: flash(f'{success_count} photo(s) uploaded to "{album["title"]}"!', 'success')
+        if renamed_files: flash("Some filenames renamed due to conflicts:", 'info'); [flash(f"- '{o}' → '{n}'", 'info_detail') for o, n in renamed_files]
+        if skipped_batch_duplicates: flash("Skipped duplicates within batch:", 'warning'); [flash(f"- '{s}'", 'warning_detail') for s in skipped_batch_duplicates]
+        if error_messages: flash(f'Upload errors for "{album["title"]}":', 'error'); [flash(msg, 'error_detail') for msg in error_messages]
+        return redirect(url_for('upload_photo_to_album', album_id=album_id))
 
-        # Redirect back to the upload page itself after processing
-        return redirect(url_for('upload_page'))
+    # GET request
+    return render_template('upload.html', album=album)
 
-    return render_template('upload.html')
-# --- END OF UPDATED UPLOAD ROUTE ---
-
-
-# (random_display_page remains the same)
-@app.route('/random')
-def random_display_page():
-    """Displays a single random photo and caption."""
+@app.route('/albums/<int:album_id>/random')
+@album_access_required
+def random_photo_in_album(album_id, album):
     db = get_db()
-    photo_data = db.execute('SELECT filename, caption FROM photos ORDER BY RANDOM() LIMIT 1').fetchone()
+    photo_data = db.execute('SELECT filename, caption FROM photos WHERE album_id = ? ORDER BY RANDOM() LIMIT 1', (album_id,)).fetchone()
     if photo_data:
-        return render_template('display.html', photo=photo_data)
+        return render_template('display.html', photo=photo_data, album=album)
     else:
-        flash('No photos found in the database.', 'info')
-        return render_template('display.html', photo=None)
+        flash(f'No photos found in album "{album["title"]}".', 'info')
+        return render_template('display.html', photo=None, album=album)
 
-
-# (uploaded_file remains the same)
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
-    """Serves the uploaded files from the UPLOAD_FOLDER."""
     safe_filename = secure_filename(filename)
-    if safe_filename != filename:
-        abort(400, "Invalid filename requested.")
-    try:
-        return send_from_directory(app.config['UPLOAD_FOLDER'], filename, as_attachment=False)
-    except FileNotFoundError:
-        abort(404, f"File '{filename}' not found.")
-    except Exception as e:
-        print(f"Error serving file {filename}: {e}")
-        abort(500, "Server error while retrieving file.")
+    if safe_filename != filename: abort(400)
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], safe_filename)
+    if not os.path.isfile(filepath): abort(404)
+    try: return send_from_directory(app.config['UPLOAD_FOLDER'], safe_filename, as_attachment=False)
+    except Exception as e: print(f"Error serving {filename}: {e}"); abort(500)
 
-
-# (manage_photos with pagination remains the same)
-@app.route('/manage')
-def manage_photos():
-    """Displays a paginated list of all photos for management."""
+@app.route('/albums/<int:album_id>/manage')
+@album_access_required
+def manage_photos_in_album(album_id, album):
     try: page = int(request.args.get('page', 1))
     except ValueError: page = 1
     if page < 1: page = 1
-    limit = ITEMS_PER_PAGE
-    offset = (page - 1) * limit
-    db = get_db()
+    limit = ITEMS_PER_PAGE; offset = (page - 1) * limit; db = get_db()
     total_items, total_pages, photos_on_page = 0, 0, []
     try:
-        total_items = db.execute('SELECT COUNT(id) FROM photos').fetchone()[0]
-        if total_items > 0: total_pages = math.ceil(total_items / limit)
-        if page > total_pages and total_pages > 0: return redirect(url_for('manage_photos', page=total_pages))
-        order_clause = 'ORDER BY uploaded_at DESC'
+        total_items = db.execute('SELECT COUNT(id) FROM photos WHERE album_id = ?', (album_id,)).fetchone()[0]
+        if total_items > 0:
+            total_pages = math.ceil(total_items / limit)
+            if page > total_pages and total_pages > 0: return redirect(url_for('manage_photos_in_album', album_id=album_id, page=total_pages))
+            order_clause = 'ORDER BY uploaded_at DESC'; base_query = 'SELECT id, filename, caption, uploaded_at FROM photos WHERE album_id = ?'
+            try: photos_on_page = db.execute(f'{base_query} {order_clause} LIMIT ? OFFSET ?', (album_id, limit, offset)).fetchall()
+            except sqlite3.OperationalError:
+                 order_clause = 'ORDER BY id DESC'; base_query = 'SELECT id, filename, caption FROM photos WHERE album_id = ?'
+                 photos_on_page = db.execute(f'{base_query} {order_clause} LIMIT ? OFFSET ?', (album_id, limit, offset)).fetchall()
+    except Exception as e: print(f"Err manage photos alb {album_id}: {e}"); flash("Error loading photos.", "error")
+    return render_template('manage.html', album=album, photos=photos_on_page, current_page=page, total_pages=total_pages, DEFAULT_ALBUM_TITLE=DEFAULT_ALBUM_TITLE)
+
+# app.py - Modify edit_album
+
+@app.route('/albums/<int:album_id>/edit', methods=['GET', 'POST'])
+@album_access_required
+def edit_album(album_id, album):
+    """Handles editing album details, checking storage limit for new cover."""
+    is_default_album = (album['title'] == DEFAULT_ALBUM_TITLE)
+
+    if request.method == 'POST':
+        # --- Get Form Data ---
+        # ... (title, description, password, etc) ...
+        new_cover_file = request.files.get('cover')
+
+        # --- Basic Validation ---
+        errors = []
+        # ... (title, password validation) ...
+
+        # --- Validate and Process New Cover Image ---
+        new_cover_filename = None
+        new_cover_filepath = None
+        old_cover_filename = album['cover_filename']
+        incoming_cover_size = 0
+        old_cover_size = 0 # Need size of old cover if replacing
+
+        if new_cover_file and new_cover_file.filename != '':
+            if not allowed_file(new_cover_file.filename):
+                errors.append('Invalid file type for new cover photo.')
+            else:
+                # Get incoming size
+                try:
+                    original_pos = new_cover_file.tell()
+                    new_cover_file.seek(0, os.SEEK_END)
+                    incoming_cover_size = new_cover_file.tell()
+                    new_cover_file.seek(original_pos)
+                except Exception as e:
+                     print(f"Error getting new cover size: {e}")
+                     errors.append("Could not determine size of new cover image.")
+
+                # <<< START STORAGE LIMIT CHECK (only if new cover is uploaded) >>>
+                if incoming_cover_size > 0 and not errors: # Proceed only if size known and no prior errors
+                     current_disk_usage = get_current_upload_size()
+                     # Get size of the file being replaced (if it exists and isn't default)
+                     old_cover_filepath = os.path.join(app.config['UPLOAD_FOLDER'], old_cover_filename)
+                     if old_cover_filename != DEFAULT_COVER_FILENAME and os.path.isfile(old_cover_filepath):
+                         try:
+                             old_cover_size = os.path.getsize(old_cover_filepath)
+                         except OSError:
+                              old_cover_size = 0 # Assume 0 if cannot get size
+
+                     print(f"Current usage: {current_disk_usage}. Old cover: {old_cover_size}. Incoming cover: {incoming_cover_size}. Limit: {MAX_TOTAL_STORAGE_BYTES}.")
+                     # Check limit considering the old file will be removed
+                     if (current_disk_usage - old_cover_size + incoming_cover_size) > MAX_TOTAL_STORAGE_BYTES:
+                          available_space_mb = max(0, (MAX_TOTAL_STORAGE_BYTES - current_disk_usage + old_cover_size)) // (1024 * 1024)
+                          errors.append(f"Cannot update cover: Adding the new file would exceed the total storage limit ({MAX_TOTAL_STORAGE_BYTES // (1024*1024)} MB).")
+                          errors.append(f"Approximately {available_space_mb} MB available after removing old cover.")
+                # <<< END STORAGE LIMIT CHECK >>>
+
+                # --- Conflict Check & Rename (only if limit check passed) ---
+                if not errors:
+                    # ... (existing conflict check and rename logic for new_cover_filename/filepath) ...
+                    # ... This part remains largely the same, just ensure it uses new_cover_file object...
+                    original_new_filename = new_cover_file.filename; filename_attempt = secure_filename(original_new_filename); filepath_attempt = os.path.join(app.config['UPLOAD_FOLDER'], filename_attempt); conflict = False
+                    if filename_attempt != old_cover_filename:
+                        db = get_db(); conflict = os.path.exists(filepath_attempt) or \
+                                   db.execute('SELECT 1 FROM photos WHERE filename = ?', (filename_attempt,)).fetchone() or \
+                                   db.execute('SELECT 1 FROM albums WHERE cover_filename = ? AND id != ?', (filename_attempt, album_id)).fetchone()
+                    if conflict:
+                        was_renamed = False; attempts = 0; max_attempts = 5; base, ext = os.path.splitext(filename_attempt)
+                        while conflict and attempts < max_attempts:
+                            attempts += 1; suffix = secrets.token_hex(3); new_filename_renamed = f"{base}_{suffix}{ext}"; new_filepath_renamed = os.path.join(app.config['UPLOAD_FOLDER'], new_filename_renamed)
+                            conflict = os.path.exists(new_filepath_renamed) or \
+                                       db.execute('SELECT 1 FROM photos WHERE filename = ?', (new_filename_renamed,)).fetchone() or \
+                                       db.execute('SELECT 1 FROM albums WHERE cover_filename = ? AND id != ?', (new_filename_renamed, album_id)).fetchone()
+                            if not conflict: renamed_cover = (original_new_filename, new_filename_renamed); new_cover_filename = new_filename_renamed; new_cover_filepath = new_filepath_renamed; was_renamed = True; print(f"New cover conflict for '{original_new_filename}', renamed to '{new_cover_filename}'"); break
+                        if not was_renamed: errors.append(f"New cover filename '{original_new_filename}' conflicts, renaming failed."); new_cover_filename = None; new_cover_filepath = None
+                    elif filename_attempt: new_cover_filename = filename_attempt; new_cover_filepath = filepath_attempt
+
+        # If a valid new cover is ready, add to update dict
+        if new_cover_filename and not errors: # Only add if no errors encountered during cover processing
+             update_fields['cover_filename'] = new_cover_filename
+
+        # --- Handle Validation Errors (including storage limit) ---
+        if errors:
+            for error in errors: flash(error, 'error')
+            return render_template('edit_album.html', album=album, current_title=request.form.get('title', album['title']), current_description=request.form.get('description', album['description']))
+
+        # --- Proceed with Update ---
+        # ... (rest of the update logic: check if update_fields, save file, update DB, delete old file) ...
+        # ... Ensure new_cover_file.seek(0) before saving ...
+        if not update_fields: flash("No changes detected.", "info"); return redirect(url_for('album_home', album_id=album_id))
+        db = get_db()
         try:
-            photos_on_page = db.execute(f'SELECT id, filename, caption, uploaded_at FROM photos {order_clause} LIMIT ? OFFSET ?', (limit, offset)).fetchall()
-        except sqlite3.OperationalError as e:
-             if 'no such column: uploaded_at' in str(e):
-                 order_clause = 'ORDER BY id DESC'
-                 photos_on_page = db.execute(f'SELECT id, filename, caption FROM photos {order_clause} LIMIT ? OFFSET ?', (limit, offset)).fetchall()
-             else: raise e
-    except Exception as e:
-        print(f"Error retrieving photos for manage page: {e}")
-        flash("Error loading photos for management.", "error")
-    return render_template('manage.html', photos=photos_on_page, current_page=page, total_pages=total_pages)
+            saved_new_file = False
+            if new_cover_filename and new_cover_filepath:
+                try: new_cover_file.seek(0); new_cover_file.save(new_cover_filepath); saved_new_file = True; print("New cover saved.")
+                except Exception as file_e: raise Exception(f"Failed to save new cover: {file_e}")
+            set_clauses = []; params = [];
+            for key, value in update_fields.items(): set_clauses.append(f"{key} = ?"); params.append(value)
+            params.append(album_id); sql = f"UPDATE albums SET {', '.join(set_clauses)} WHERE id = ?"; db.execute(sql, tuple(params)); db.commit(); print("Album updated.")
+            if saved_new_file and old_cover_filename != new_cover_filename and old_cover_filename != DEFAULT_COVER_FILENAME:
+                old_cover_filepath = os.path.join(app.config['UPLOAD_FOLDER'], old_cover_filename)
+                if os.path.exists(old_cover_filepath): try: os.remove(old_cover_filepath); print(f"Deleted old cover: {old_cover_filepath}")
+                except OSError as del_e: print(f"Warn: Failed del old cover {old_cover_filepath}: {del_e}"); flash(f"Failed del old cover '{old_cover_filename}'.", 'warning')
+            flash("Album details updated!", 'success')
+            if renamed_cover: flash(f"Note: New cover '{renamed_cover[0]}' was renamed to '{renamed_cover[1]}'.", 'info_detail')
+            return redirect(url_for('album_home', album_id=album_id))
+        except Exception as e:
+            db.rollback(); print(f"Error updating album {album_id}: {e}"); flash(f"Error updating album: {e}", 'error')
+            if saved_new_file and new_cover_filepath and os.path.exists(new_cover_filepath): try: os.remove(new_cover_filepath); print(f"Cleaned up new cover: {new_cover_filepath}"); except OSError: pass
+            return render_template('edit_album.html', album=album, current_title=request.form.get('title', album['title']), current_description=request.form.get('description', album['description']))
 
+    # --- Handle GET Request ---
+    return render_template('edit_album.html', album=album, current_title=album['title'], current_description=album['description'])
 
-# (edit_photo remains the same)
-@app.route('/edit/<int:photo_id>', methods=['GET', 'POST'])
-def edit_photo(photo_id):
-    """Handles editing the caption of a specific photo."""
-    photo = get_photo(photo_id)
+@app.route('/albums/<int:album_id>/edit/<int:photo_id>', methods=['GET', 'POST'])
+@album_access_required
+def edit_photo_in_album(album_id, photo_id, album):
+    photo = get_photo(photo_id, album_id=album_id)
     if request.method == 'POST':
         new_caption = request.form.get('caption', '').strip()
-        if not new_caption:
-            flash('Caption cannot be empty!', 'error')
-            return render_template('edit.html', photo=photo)
-        else:
-            try:
-                db = get_db()
-                db.execute('UPDATE photos SET caption = ? WHERE id = ?', (new_caption, photo_id))
-                db.commit()
-                flash('Caption updated successfully!', 'success')
-                return redirect(url_for('manage_photos', page=request.args.get('page', 1))) # Try to redirect back to original page
-            except Exception as e:
-                 print(f"Error updating caption for photo ID {photo_id}: {e}")
-                 flash(f'Error updating caption: {e}', 'error')
-                 return render_template('edit.html', photo=photo)
-    return render_template('edit.html', photo=photo)
+        try:
+            db = get_db(); db.execute('UPDATE photos SET caption = ? WHERE id = ? AND album_id = ?', (new_caption if new_caption else None, photo_id, album_id)); db.commit()
+            flash('Caption updated!', 'success')
+            return redirect(url_for('manage_photos_in_album', album_id=album_id, page=request.args.get('page', 1)))
+        except Exception as e: print(f"Err update caption {photo_id}: {e}"); flash(f'Error updating caption: {e}', 'error'); return render_template('edit.html', photo=photo, album=album)
+    return render_template('edit.html', photo=photo, album=album)
 
-
-# (delete_photo remains the same, redirects to page 1)
-@app.route('/delete/<int:photo_id>', methods=['POST'])
-def delete_photo(photo_id):
-    """Handles deleting a single photo entry and its associated file."""
-    photo = get_photo(photo_id)
-    filename = photo['filename']
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    redirect_url = url_for('manage_photos', page=1) # Simple redirect to page 1
+@app.route('/albums/<int:album_id>/delete/<int:photo_id>', methods=['POST'])
+@album_access_required
+def delete_photo_from_album(album_id, photo_id, album):
+    photo = get_photo(photo_id, album_id=album_id)
+    filename = photo['filename']; filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    redirect_url = url_for('manage_photos_in_album', album_id=album_id, page=request.args.get('page', 1))
     try:
-        db = get_db()
-        db.execute('DELETE FROM photos WHERE id = ?', (photo_id,))
-        db.commit()
-        print(f"Deleted record ID {photo_id} (Filename: {filename}) from DB.")
+        db = get_db(); db.execute('DELETE FROM photos WHERE id = ? AND album_id = ?', (photo_id, album_id)); db.commit()
+        print(f"Deleted record {photo_id} ({filename}).")
         if os.path.exists(filepath):
-            try:
-                os.remove(filepath)
-                print(f"Deleted file: {filepath}")
-                flash(f'Photo "{filename}" deleted successfully!', 'success')
-            except OSError as e:
-                print(f"Error deleting file {filepath}: {e}")
-                flash(f'DB entry deleted, but failed to delete file "{filename}".', 'error')
-        else:
-            print(f"File was already missing: {filepath}")
-            flash(f'DB entry deleted, but file "{filename}" was missing.', 'warning')
-    except Exception as e:
-        print(f"Error deleting photo record ID {photo_id}: {e}")
-        flash(f'Error deleting photo DB entry: {e}', 'error')
+            try: os.remove(filepath); print(f"Deleted file: {filepath}"); flash(f'"{filename}" deleted!', 'success')
+            except OSError as e: print(f"Err del file {filepath}: {e}"); flash(f'DB deleted, failed file delete "{filename}".', 'error')
+        else: print(f"File missing: {filepath}"); flash(f'DB deleted, file "{filename}" missing.', 'warning')
+    except Exception as e: print(f"Err del photo {photo_id}: {e}"); flash(f'Error deleting DB entry: {e}', 'error')
     return redirect(redirect_url)
 
-# --- NEW: Delete All Photos Route ---
-@app.route('/delete_all', methods=['POST'])
-def delete_all_photos():
-    """Deletes ALL photos from the database and the uploads folder."""
-    print("\n---!!! DELETE ALL PHOTOS INITIATED !!!---")
-    db = get_db()
-    deleted_db_count = 0
-    deleted_file_count = 0
-    error_files = []
-
+@app.route('/albums/<int:album_id>/delete_all_photos', methods=['POST'])
+@album_access_required
+def delete_all_photos_in_album(album_id, album):
+    """Deletes all photos within a specific album (DB records and files)."""
+    db = get_db(); deleted_db_count = 0; deleted_file_count = 0; error_files = []; photos_to_delete = []
     try:
-        # 1. Delete all records from the database
-        print("Attempting to delete all records from 'photos' table...")
-        cursor = db.execute('DELETE FROM photos')
-        deleted_db_count = cursor.rowcount # Get affected row count
-        db.commit()
-        print(f"Successfully deleted {deleted_db_count} records from the database.")
+        photos_to_delete = db.execute('SELECT filename FROM photos WHERE album_id = ?', (album_id,)).fetchall()
+        if not photos_to_delete: flash("No photos found in this album to delete.", 'info'); return redirect(url_for('manage_photos_in_album', album_id=album_id))
+        cursor = db.execute('DELETE FROM photos WHERE album_id = ?', (album_id,)); deleted_db_count = cursor.rowcount; db.commit()
+        print(f"Deleted {deleted_db_count} photo records from DB for album ID: {album_id}.")
+        print(f"Attempting to delete {len(photos_to_delete)} associated files...")
+        for photo in photos_to_delete:
+            filename = photo['filename'];
+            if not filename: continue
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            try:
+                if os.path.isfile(filepath): os.unlink(filepath); deleted_file_count += 1
+            except OSError as e: print(f"  Error deleting file {filepath}: {e}"); error_files.append(filename)
+        print(f"Finished deleting {deleted_file_count} files.")
+        if deleted_db_count > 0: flash(f"Successfully deleted {deleted_db_count} photos from album '{album['title']}'.", 'success')
+        if deleted_file_count < deleted_db_count and not error_files: flash(f"Note: {deleted_db_count - deleted_file_count} file(s) were already missing.", "warning")
+        if error_files: flash(f"Failed to delete {len(error_files)} file(s): {', '.join(error_files)}", 'error')
+    except Exception as e: import traceback; print(f"ERROR deleting all photos for album {album_id}: {e}"); traceback.print_exc(); flash(f"An error occurred while deleting photos: {e}", 'error')
+    return redirect(url_for('manage_photos_in_album', album_id=album_id))
 
-        # 2. Delete all files from the uploads folder
-        print(f"Attempting to delete all files from folder: {app.config['UPLOAD_FOLDER']}")
-        if not os.path.exists(app.config['UPLOAD_FOLDER']):
-             print("Uploads folder does not exist. Nothing to delete.")
-        else:
-            for filename in os.listdir(app.config['UPLOAD_FOLDER']):
-                filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-                try:
-                    # Make sure it's a file, not a subdirectory (though unlikely here)
-                    if os.path.isfile(filepath) or os.path.islink(filepath):
-                        os.remove(filepath)
-                        print(f"  Deleted file: {filename}")
-                        deleted_file_count += 1
-                    # elif os.path.isdir(filepath): # Optional: handle subdirs if needed
-                    #     shutil.rmtree(filepath) # Use shutil.rmtree for directories
-                except Exception as e:
-                    print(f"  ERROR deleting file {filename}: {e}")
-                    error_files.append(filename)
-
-        # 3. Flash results
-        flash(f'Successfully deleted {deleted_db_count} database entries and {deleted_file_count} files.', 'success')
-        if error_files:
-            flash(f'Could not delete {len(error_files)} file(s): {", ".join(error_files)}', 'error')
-        print("--- DELETE ALL PHOTOS COMPLETED ---")
-
-    except Exception as e:
-        import traceback
-        print("---!!! CRITICAL ERROR DURING DELETE ALL !!!---")
-        print(f"Error: {e}")
-        traceback.print_exc()
-        flash(f'A critical error occurred during deletion: {e}', 'error')
-        # Attempt rollback if DB deletion was partial? (Less likely with simple DELETE)
-        # db.rollback()
-        print("--- END DELETE ALL ERROR ---")
-
-    # Redirect to the main index page after deletion
-    return redirect(url_for('index_page'))
-# --- END DELETE ALL ROUTE ---
-
+@app.route('/albums/<int:album_id>/delete', methods=['POST'])
+@album_access_required
+def delete_album(album_id, album):
+    if album['title'] == DEFAULT_ALBUM_TITLE: flash(f"The '{DEFAULT_ALBUM_TITLE}' album cannot be deleted.", 'error'); return redirect(url_for('list_albums'))
+    cover_filename = album['cover_filename']; cover_filepath = os.path.join(app.config['UPLOAD_FOLDER'], cover_filename); photos_in_album = []; db = get_db()
+    try:
+        photos_in_album = db.execute('SELECT filename FROM photos WHERE album_id = ?', (album_id,)).fetchall()
+        print(f"Deleting album ID: {album_id}, Title: {album['title']}")
+        db.execute('DELETE FROM albums WHERE id = ?', (album_id,)); db.commit(); print(f"Deleted album record.")
+        deleted_photo_files = 0; error_photo_files = []
+        for photo in photos_in_album:
+             photo_filename = photo['filename']; photo_filepath = os.path.join(app.config['UPLOAD_FOLDER'], photo_filename)
+             if os.path.exists(photo_filepath):
+                 try: os.remove(photo_filepath); deleted_photo_files += 1
+                 except OSError as e: print(f"Err del photo file {photo_filename}: {e}"); error_photo_files.append(photo_filename)
+        if error_photo_files: flash(f'Could not delete {len(error_photo_files)} photo file(s).', 'error')
+        if cover_filename != DEFAULT_COVER_FILENAME and os.path.exists(cover_filepath):
+             try: os.remove(cover_filepath); print(f"Deleted cover file: {cover_filepath}")
+             except OSError as e: print(f"Err del cover {cover_filepath}: {e}"); flash(f'Album deleted, failed cover delete "{cover_filename}".', 'error')
+        flash(f'Album "{album["title"]}" deleted!', 'success')
+    except Exception as e: import traceback; print(f"ERR deleting album {album_id}: {e}"); traceback.print_exc(); flash(f'Error deleting album: {e}', 'error'); db.rollback()
+    return redirect(url_for('list_albums'))
 
 # --- Main Execution ---
 if __name__ == '__main__':
-    if not os.path.exists(DATABASE):
-        print(f"Database '{DATABASE}' not found. Run 'flask init-db'.")
-    if not os.path.exists(UPLOAD_FOLDER):
-        print(f"Upload folder '{UPLOAD_FOLDER}' not found. Creating it.")
-        os.makedirs(UPLOAD_FOLDER)
-    app.run(debug=True) #change on upload
+    if not os.path.exists(DATABASE): print(f"WARNING: Database '{DATABASE}' missing. Run 'flask init-db'.")
+    if not os.path.exists(UPLOAD_FOLDER): print(f"Upload folder '{UPLOAD_FOLDER}' missing. Creating."); os.makedirs(UPLOAD_FOLDER)
+    default_cover_path = os.path.join(app.config['UPLOAD_FOLDER'], DEFAULT_COVER_FILENAME)
+    if not os.path.exists(default_cover_path): print(f"WARNING: Default cover '{DEFAULT_COVER_FILENAME}' missing in '{UPLOAD_FOLDER}'.")
+    app.run(debug=True)

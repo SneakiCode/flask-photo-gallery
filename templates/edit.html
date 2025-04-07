@@ -1,9 +1,10 @@
+{# templates/edit.html (Modified) #}
 {% extends 'base.html' %}
 
-{% block title %}Edit Caption{% endblock %}
+{% block title %}Edit Caption in {{ album.title }}{% endblock %}
 
 {% block content %}
-    <h1>Edit Caption</h1>
+    <h1>Edit Caption in Album: {{ album.title | e }}</h1>
 
     {% if photo %}
         <div class="edit-form-container">
@@ -12,6 +13,7 @@
              </div>
             <p><strong>Filename:</strong> {{ photo.filename }}</p>
 
+            {# Form action posts back to the same URL, which is correct #}
             <form method="post">
                 <div>
                     <label for="caption">Caption:</label><br>
@@ -19,10 +21,12 @@
                 </div>
                 <br>
                 <button type="submit" class="button edit-button">Save Changes</button>
-                <a href="{{ url_for('manage_photos') }}" style="margin-left: 10px;">Cancel</a>
+                {# Update Cancel link to go back to the specific album's manage page #}
+                <a href="{{ url_for('manage_photos_in_album', album_id=album.id, page=request.args.get('page', 1)) }}" class="cancel-link" style="margin-left: 10px;">Cancel</a>
             </form>
         </div>
     {% else %}
         <p>Photo not found.</p>
+         <p><a href="{{ url_for('manage_photos_in_album', album_id=album.id) }}">« Back to Album Management</a></p>
     {% endif %}
 {% endblock %}

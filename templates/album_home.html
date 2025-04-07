@@ -1,0 +1,39 @@
+{# templates/album_home.html - Add Edit Album link #}
+{% extends 'base.html' %}
+
+{% block title %}{{ album.title }} - Album Home{% endblock %}
+
+{% block content %}
+    <h1>Album: {{ album.title | e }}</h1>
+    {% if album.description %}
+    <p style="text-align: center; max-width: 600px; margin: 0 auto 30px auto;">{{ album.description | e }}</p>
+    {% endif %}
+
+    <div class="home-navigation" style="text-align: center;">
+
+        {# Larger Random Button #}
+        <p style="margin-bottom: 20px;">
+            <a href="{{ url_for('random_photo_in_album', album_id=album.id) }}"
+               class="button random-button"
+               style="font-size: 1.2em; padding: 12px 28px; font-weight: 700;">
+                View Random Photo from This Album
+            </a>
+        </p>
+
+        {# Other main actions #}
+        <p><a href="{{ url_for('upload_photo_to_album', album_id=album.id) }}" class="button">Upload Photos to This Album</a></p>
+        <p><a href="{{ url_for('manage_photos_in_album', album_id=album.id) }}" class="button edit-button">Manage Photos in This Album</a></p>
+
+        {# <<< NEW: Link to Edit Album Details >>> #}
+        <p style="margin-top: 15px;">
+            <a href="{{ url_for('edit_album', album_id=album.id) }}" class="button" style="background-color: #FFF4D9;">Edit Album Details</a>
+            {# Added a subtle background color to differentiate #}
+        </p>
+        {# <<< END NEW LINK >>> #}
+
+
+         <hr style="display: block; border: none; border-top: 1px dashed #FFA69E; margin: 30px auto; width: 80%;">
+         <p><a href="{{ url_for('list_albums') }}" style="font-weight: normal; text-decoration: underline;">« Back to All Albums</a></p>
+
+    </div>
+{% endblock %}

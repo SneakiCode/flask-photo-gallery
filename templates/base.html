@@ -1,46 +1,63 @@
+{# templates/base.html - Final Version - Absolutely Clean Flash Comment Syntax #}
 <!doctype html>
 <html lang="en">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Photo App{% endblock %}</title> {# Simplified default title #}
+    <title>{% block title %}Photo App{% endblock %}</title>
 
-	<link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;700&display=swap" rel="stylesheet">
-
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-
-    {% block styles %}
-    {% endblock %}
-
+    {% block styles %}{% endblock %}
 </head>
 <body>
-    {# --- Updated Navigation --- #}
     <nav>
-        <a href="{{ url_for('index_page') }}">Home</a> | {# <<< Added Home link #}
-        <a href="{{ url_for('upload_page') }}">Upload</a> | {# Text simplified #}
-        <a href="{{ url_for('random_display_page') }}">Random</a> | {# Text simplified #}
-        <a href="{{ url_for('manage_photos') }}">Manage</a> {# Text simplified #}
+        {# --- Conditional Navigation --- #}
+        {% if album %}
+            {# Inside a specific album view #}
+            <a href="{{ url_for('list_albums') }}" title="Back to All Albums">All Albums</a> |
+            <a href="{{ url_for('album_home', album_id=album.id) }}" title="Album Home for {{ album.title | e }}">{{ album.title | truncate(20) | e }} Home</a> |
+            <a href="{{ url_for('upload_photo_to_album', album_id=album.id) }}">Upload</a> |
+            <a href="{{ url_for('random_photo_in_album', album_id=album.id) }}" class="nav-random-link">Random</a> | {# Kept class for styling #}
+            <a href="{{ url_for('manage_photos_in_album', album_id=album.id) }}">Manage</a>
+        {% else %}
+            {# Outside an album view (Intro, Album List, Create Album, Auth) #}
+            <a href="{{ url_for('introduction') }}">Intro</a> |
+            <a href="{{ url_for('list_albums') }}">Albums</a> |
+            <a href="{{ url_for('create_album') }}">Create Album</a>
+        {% endif %}
+        {# --- End Conditional Navigation --- #}
     </nav>
-    {# Removed <hr> as it was hidden by CSS anyway #}
 
     <div class="content">
-        {# Flash messages remain the same #}
-        {% with messages = get_flashed_messages(with_categories=true) %}
-          {% if messages %}
-            <ul class="flashes">
-              {% for category, message in messages %}
-                {# Use a class that matches CSS for error details #}
-                <li class="{{ category if category != 'error_detail' else 'error_detail' }}">{{ message }}</li>
-              {% endfor %}
-            </ul>
-          {% endif %}
-        {% endwith %}
+        {# --- Flash Messages (Absolutely Clean Syntax) --- #}
+         {% with messages = get_flashed_messages(with_categories=true) %}
+           {% if messages %}
+             <ul class="flashes">
+             {% for category, message in messages %}
+               {# Map categories to CSS classes #}
+               <li class="{{ 'success' if category == 'success' else
+                            'error' if category == 'error' else
+                            'info' if category == 'info' else
+                            'warning' if category == 'warning' else
+                            'error_detail' if category == 'error_detail' else
+                            'info_detail' if category == 'info_detail' else
+                            'warning_detail' if category == 'warning_detail' else
+                            'info'
+                          }}">{{ message }}</li> {# <<< NO COMMENT HERE AT ALL >>> #}
+             {% endfor %}
+             </ul>
+           {% endif %}
+         {% endwith %}
+         {# --- End Flash Messages --- #}
 
-        {% block content %}
-        {% endblock %}
+        {% block content %}{% endblock %}
+    </div>
 
-    </div> {# End of content div #}
+    {# Optional Footer or Scripts #}
+    {% block scripts %}{% endblock %}
+
 </body>
 </html>

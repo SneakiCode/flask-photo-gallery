@@ -1,0 +1,59 @@
+{# templates/intro.html - Modified Camera Icon with Container #}
+{% extends 'base.html' %}
+
+{% block title %}Welcome!{% endblock %}
+
+{% block content %}
+    <div style="text-align: center; padding: 40px 20px;">
+
+        <h1>Welcome!</h1>
+
+        <p style="font-size: 1.2em; max-width: 600px; margin: 20px auto;">
+            Anyone can use this website to create albums full of images, add captions to the images and randomly view images and their captions. Enjoy! 
+        </p>
+
+        {# --- START: Modified Icon Section --- #}
+        {# 1. Create a container DIV #}
+        <div style="
+                /* Set the desired size of the circle */
+                width: 200px; /* Adjust width as needed */
+                height: 200px; /* Adjust height (should match width for circle) */
+
+                /* Apply circular styling to the DIV */
+                border-radius: 50%;
+                background-color: #FFDACC; /* Light Pink background */
+                border: 2px solid #3B1D1F; /* Dark Brown border */
+                box-shadow: 4px 4px 0px #3B1D1F; /* Slightly larger shadow? Adjust as desired */
+
+                /* Center the DIV itself on the page */
+                margin: 30px auto;
+
+                /* Use Flexbox to center the image INSIDE the div */
+                display: flex; /* Use flex or inline-flex depending on desired block behavior */
+                justify-content: center; /* Center horizontally */
+                align-items: center; /* Center vertically */
+
+                /* Optional: Hide anything overflowing the circle */
+                overflow: hidden;
+            ">
+            {# 2. Place the image INSIDE the container DIV #}
+            <img src="{{ url_for('static', filename='camera_icon.png') }}"
+                 alt="Cute camera icon"
+                 style="
+                    /* Size the image to fit inside the circle */
+                    display: block; /* Remove extra space below image */
+                    max-width: 75%;  /* Example: 75% of the container width (adjust as needed) */
+                    max-height: 75%; /* Example: 75% of the container height (adjust as needed) */
+                    /* Remove border-radius/bg-color/border/shadow from image itself */
+                 ">
+        </div>
+        {# --- END: Modified Icon Section --- #}
+
+
+        <div class="home-navigation" style="margin-top: 40px;">
+            <p><a href="{{ url_for('list_albums') }}" class="button" style="font-size: 1.1em; padding: 12px 25px;">View All Albums</a></p>
+            <p style="margin-top: 20px;"><a href="{{ url_for('create_album') }}" class="button edit-button" style="font-size: 1.1em; padding: 12px 25px;">Create a New Album</a></p>
+        </div>
+
+    </div>
+{% endblock %}

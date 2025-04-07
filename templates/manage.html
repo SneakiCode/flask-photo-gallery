@@ -1,87 +1,94 @@
+{# templates/manage.html - Reordered Layout #}
 {% extends 'base.html' %}
 
-{% block title %}Manage Photos{% endblock %}
+{% block title %}Manage Photos in {{ album.title }}{% endblock %}
 
 {% block content %}
-    <h1>Manage Uploaded Photos</h1>
+    <h1>Manage Photos in Album: {{ album.title | e }}</h1>
 
-    {# Display Page Info #}
-    {% if photos and total_pages > 0 %}
-    <p style="text-align: center; margin-bottom: 20px;">
-        Showing page {{ current_page }} of {{ total_pages }}
-    </p>
-    {% endif %}
+    {# Main Action Buttons - Keep near top #}
+    <div style="text-align: center; margin-bottom: 25px; display: flex; justify-content: center; align-items: center; gap: 15px;">
+         <a href="{{ url_for('upload_photo_to_album', album_id=album.id) }}" class="button">Upload More Photos to This Album</a>
+         <a href="{{ url_for('album_home', album_id=album.id) }}" class="cancel-link">Back to Album Home</a>
+    </div>
 
+    {# <<< MOVED PHOTO GRID AND PAGINATION UP >>> #}
     {% if photos %}
         <div class="photo-management-grid">
+            {# Loop through photos to display them #}
             {% for photo in photos %}
                 <div class="photo-item">
                     <div class="photo-thumbnail">
-                        <img src="{{ url_for('uploaded_file', filename=photo.filename) }}"
-                             alt="Thumbnail for {{ photo.filename | e }}"
-                             loading="lazy">
+                         <img src="{{ url_for('uploaded_file', filename=photo.filename) }}"
+                              alt="Thumbnail for {{ photo.filename | e }}"
+                              loading="lazy">
                     </div>
                     <div class="photo-details">
-                        <p class="caption-preview" title="{{ photo.caption | e }}">
-                            {{ photo.caption | e | truncate(60) }}
-                        </p>
+                         <p class="caption-preview" title="{{ photo.caption | e if photo.caption else 'No caption' }}">
+                              {{ photo.caption | e | truncate(60) if photo.caption else '(No caption)' }}
+                         </p>
                     </div>
                     <div class="photo-actions">
-                        {# Pass current page to edit link for potentially better redirect back #}
-                        <a href="{{ url_for('edit_photo', photo_id=photo.id, page=current_page) }}" class="button edit-button" title="Edit Caption">Edit</a>
-                        <form method="post" action="{{ url_for('delete_photo', photo_id=photo.id) }}" style="display: inline;"
-                              onsubmit="return confirm('Delete {{ photo.filename | escape | replace("'", "\\'") }}?');">
-                              {# Simplified confirm message slightly #}
-                            <button type="submit" class="button delete-button" title="Delete Photo">Delete</button>
-                        </form>
+                         <a href="{{ url_for('edit_photo_in_album', album_id=album.id, photo_id=photo.id, page=current_page) }}" class="button edit-button" title="Edit Caption">Edit</a>
+                         <form method="post" action="{{ url_for('delete_photo_from_album', album_id=album.id, photo_id=photo.id, page=current_page) }}" style="display: inline;"
+                               onsubmit="return confirm('Delete {{ photo.filename | escape | replace("'", "\\'") }}?');">
+                             <button type="submit" class="button delete-button" title="Delete Photo">Delete</button>
+                         </form>
                     </div>
                 </div>
             {% endfor %}
         </div>
 
-        {# Pagination Controls #}
-        {% if total_pages > 1 %}
-        <nav class="pagination" aria-label="Photo navigation">
-            <ul>
-                {% if current_page > 1 %}
-                <li><a href="{{ url_for('manage_photos', page=current_page - 1) }}" class="page-link prev">« Previous</a></li>
-                {% else %}
-                <li class="disabled"><span class="page-link prev">« Previous</span></li>
-                {% endif %}
-                {% for page_num in range(1, total_pages + 1) %}
-                    {% if page_num == current_page %}
-                    <li class="active"><span class="page-link current">{{ page_num }}</span></li>
-                    {% else %}
-                    <li><a href="{{ url_for('manage_photos', page=page_num) }}" class="page-link">{{ page_num }}</a></li>
-                    {% endif %}
-                {% endfor %}
-                {% if current_page < total_pages %}
-                <li><a href="{{ url_for('manage_photos', page=current_page + 1) }}" class="page-link next">Next »</a></li>
-                {% else %}
-                <li class="disabled"><span class="page-link next">Next »</span></li>
-                {% endif %}
-            </ul>
-        </nav>
+        {# Pagination Info - Place near controls #}
+        {% if total_pages > 0 %}
+            <p style="text-align: center; margin-top: 20px; margin-bottom: 5px; font-size: 0.9em; color: #555;">
+                Showing page {{ current_page }} of {{ total_pages }}
+            </p>
         {% endif %}
 
-    {% else %}
-        {# Message shown if no photos exist #}
-        <p>No photos found in the database yet.</p>
-        <p>Go to the <a href="{{ url_for('upload_page') }}">upload page</a> to add some!</p>
+        {# Pagination Controls - Place immediately after the grid #}
+        {% if total_pages > 1 %}
+            <nav class="pagination" aria-label="Photo navigation">
+                <ul>
+                    {% if current_page > 1 %}
+                    <li><a href="{{ url_for('manage_photos_in_album', album_id=album.id, page=current_page - 1) }}" class="page-link prev">« Previous</a></li>
+                    {% else %}
+                    <li class="disabled"><span class="page-link prev">« Previous</span></li>
+                    {% endif %}
+                    {% for page_num in range(1, total_pages + 1) %}
+                        {% if page_num == current_page %}
+                        <li class="active"><span class="page-link current">{{ page_num }}</span></li>
+                        {% else %}
+                        <li><a href="{{ url_for('manage_photos_in_album', album_id=album.id, page=page_num) }}" class="page-link">{{ page_num }}</a></li>
+                        {% endif %}
+                    {% endfor %}
+                    {% if current_page < total_pages %}
+                    <li><a href="{{ url_for('manage_photos_in_album', album_id=album.id, page=current_page + 1) }}" class="page-link next">Next »</a></li>
+                    {% else %}
+                    <li class="disabled"><span class="page-link next">Next »</span></li>
+                    {% endif %}
+                </ul>
+            </nav>
+        {% endif %}
+        {# <<< END MOVED SECTION >>> #}
+
+    {% elif not photos %} {# Message if no photos, placed after action buttons #}
+         <p style="text-align: center; margin: 40px 0; font-style: italic;">
+             This album currently has no photos.
+         </p>
     {% endif %}
 
 
-    {# --- START: Delete All Section --- #}
-    <div class="danger-zone" style="margin-top: 40px; padding-top: 20px; border-top: 3px solid #FF6B6B; text-align: center;">
-        <h2>Danger Zone</h2>
-        <p style="color: #E05246; font-weight: bold;">Warning: The action below is irreversible!</p>
-        <form method="post" action="{{ url_for('delete_all_photos') }}"
-              onsubmit="return confirm('ARE YOU ABSOLUTELY SURE?\n\nThis will delete ALL photos and captions PERMANENTLY from the database and remove ALL files from the uploads folder. This cannot be undone!');">
-            <button type="submit" class="button delete-button" style="background-color: #D90429; border-color: #3B1D1F; color: white; font-size: 1.1em; padding: 12px 25px;">
-                Delete All Photos Forever
-            </button>
-        </form>
+    {# Danger Zone - Now appears after the photos grid and pagination #}
+    <div class="album-danger-zone" style="margin-top: 40px; padding: 15px; border: 2px solid #D90429; border-radius: 8px; text-align: center; background-color: #FFDACC; max-width: 600px; margin-left: auto; margin-right: auto;">
+         <h3 style="color: #D90429; margin-top: 0; margin-bottom: 10px; font-size: 1.1em;">Album Danger Zone</h3>
+         <form method="post" action="{{ url_for('delete_all_photos_in_album', album_id=album.id) }}"
+               onsubmit="return confirm('ARE YOU ABSOLUTELY SURE?\n\nThis will delete ALL photos currently in the album \'{{ album.title | escape | replace("'", "\\'") }}\' PERMANENTLY! This cannot be undone.');">
+             <button type="submit" class="button delete-button" style="background-color: #D90429; border-color: #3B1D1F; color: white;">
+                 Delete All Photos In This Album
+             </button>
+         </form>
+         <small style="display: block; margin-top: 10px; color: #555;">This only affects photos within this specific album.</small>
     </div>
-    {# --- END: Delete All Section --- #}
 
-{% endblock %} {# End of content block #}
+{% endblock %}
