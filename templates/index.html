@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+
+{% block title %}Welcome!{% endblock %}
+
+{% block content %}
+    <h1>Welcome to the Retro Photo Gallery!</h1>
+
+    <p style="text-align: center; margin-bottom: 30px;">What would you like to do?</p>
+
+    <div class="home-navigation" style="text-align: center;">
+        {# Use existing button styles #}
+        <p><a href="{{ url_for('upload_page') }}" class="button">Upload New Photos</a></p>
+        <p><a href="{{ url_for('random_display_page') }}" class="button random-button">View a Random Photo</a></p>
+        <p><a href="{{ url_for('manage_photos') }}" class="button edit-button">Manage Your Photos</a></p>
+    </div>
+
+{% endblock %}

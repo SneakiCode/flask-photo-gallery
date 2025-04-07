@@ -1,0 +1,71 @@
+{% extends 'base.html' %}
+
+{% block title %}Random Photo{% endblock %}
+
+{% block content %}
+<h1>Random Photo</h1>
+
+{# Form ID is not strictly needed for this script, but doesn't hurt #}
+<form method="GET" action="{{ url_for('random_display_page') }}" id="random-photo-form">
+    <button type="submit" class="random-button">Show Another</button>
+</form>
+
+{% if photo %}
+    {# Add an ID to the container DIV for reliable targeting #}
+    <div class="photo-display" id="photo-container">
+        {# Add an ID to the image itself for onload event handling #}
+        <img id="random-image" src="{{ url_for('uploaded_file', filename=photo.filename) }}" alt="{{ photo.caption | default('Random photo', true) | e }}">
+        <p><strong>Caption:</strong> {{ photo.caption | e }}</p>
+    </div>
+{% else %}
+    <p>No photos found. <a href="{{ url_for('upload_page') }}">Upload one?</a></p>
+{% endif %}
+
+{# --- START: JavaScript for Centering Image Container on Load --- #}
+{# This script waits for the image content to load then scrolls its container to the center #}
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const photoContainer = document.getElementById('photo-container');
+        const photoImage = document.getElementById('random-image');
+
+        // Only proceed if both the container and the image element exist
+        if (photoContainer && photoImage) {
+
+            const scrollToCenter = () => {
+                // console.log('Attempting to scroll photo container to center.'); // Debugging
+                photoContainer.scrollIntoView({
+                    behavior: 'auto', // Use 'auto' for an instant jump
+                    block: 'center',  // Vertically align the center of the container with the viewport's center
+                    inline: 'nearest' // Keep horizontal scroll unchanged
+                });
+                 // console.log('scrollIntoView called.'); // Debugging
+            };
+
+            // --- Wait for the image to fully load before scrolling ---
+            // This ensures the container's height is accurate after the image renders.
+
+            // Check if the image is already loaded (e.g., from browser cache) when the DOM is ready
+            if (photoImage.complete && photoImage.naturalHeight !== 0) {
+                 // console.log('Image already complete, scrolling with timeout.'); // Debugging
+                 // Use a minimal timeout just to ensure the render queue is clear
+                 setTimeout(scrollToCenter, 0);
+            } else {
+                 // console.log('Image not yet complete, adding load listener.'); // Debugging
+                // If not loaded, add an event listener to wait for the 'load' event
+                photoImage.addEventListener('load', scrollToCenter);
+
+                // Optional: Handle cases where the image fails to load
+                photoImage.addEventListener('error', () => {
+                    console.error('Image failed to load. Scrolling container to top instead.');
+                    // As a fallback, maybe scroll the container (with caption/alt text) to the top
+                    photoContainer.scrollIntoView({ behavior: 'auto', block: 'start' });
+                });
+            }
+        } else {
+             // console.warn('Photo container or image element not found.'); // Debugging
+        }
+    });
+</script>
+{# --- END: JavaScript for Centering Image Container on Load --- #}
+
+{% endblock %}

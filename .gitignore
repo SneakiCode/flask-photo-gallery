@@ -1,0 +1,23 @@
+# Virtual environment folder (common names)
+venv/
+env/
+*.venv/
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+
+# OS-specific files (optional but good practice)
+.DS_Store
+Thumbs.db
+
+# Database file (contains your captions/filenames)
+database.db
+
+# Uploaded image files (contains your actual photos)
+uploads/
+
+# IDE / Editor specific folders (examples)
+.vscode/
+.idea/

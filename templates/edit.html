@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+
+{% block title %}Edit Caption{% endblock %}
+
+{% block content %}
+    <h1>Edit Caption</h1>
+
+    {% if photo %}
+        <div class="edit-form-container">
+             <div class="photo-preview">
+                 <img src="{{ url_for('uploaded_file', filename=photo.filename) }}" alt="{{ photo.caption }}" style="max-width: 300px; max-height: 300px; margin-bottom: 15px;">
+             </div>
+            <p><strong>Filename:</strong> {{ photo.filename }}</p>
+
+            <form method="post">
+                <div>
+                    <label for="caption">Caption:</label><br>
+                    <input type="text" id="caption" name="caption" value="{{ photo.caption }}" size="50" required>
+                </div>
+                <br>
+                <button type="submit" class="button edit-button">Save Changes</button>
+                <a href="{{ url_for('manage_photos') }}" style="margin-left: 10px;">Cancel</a>
+            </form>
+        </div>
+    {% else %}
+        <p>Photo not found.</p>
+    {% endif %}
+{% endblock %}

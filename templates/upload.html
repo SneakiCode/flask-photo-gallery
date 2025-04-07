@@ -1,0 +1,103 @@
+{% extends 'base.html' %}
+
+{% block title %}Upload Photos{% endblock %}
+
+{% block content %}
+<h1>Upload New Photos</h1>
+
+{# Note: No longer just 'photo' and 'caption' #}
+<form method="POST" enctype="multipart/form-data" id="upload-form">
+
+    {# File Input - Allow multiple selections #}
+    <div class="form-group">
+        <label for="photos">Select Photos:</label>
+        <input type="file" name="photos" id="photos" multiple required accept="image/png, image/jpeg, image/gif"> {# Added 'accept' attribute #}
+        <small>You can select multiple files (png, jpg, gif).</small>
+    </div>
+    <br>
+
+    {# Container where dynamic caption fields will be added #}
+    <div id="caption-fields-container" style="margin-bottom: 20px;">
+        {# JavaScript will populate this area #}
+    </div>
+
+    <button type="submit" id="submit-button">Upload Selected Photos</button>
+</form>
+
+{# --- JavaScript for Dynamic Caption Fields --- #}
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const fileInput = document.getElementById('photos');
+        const captionsContainer = document.getElementById('caption-fields-container');
+        const submitButton = document.getElementById('submit-button'); // Optional: disable button initially
+
+        // Function to generate caption fields based on selected files
+        const generateCaptionFields = () => {
+            // Clear any existing caption fields
+            captionsContainer.innerHTML = '';
+            const files = fileInput.files;
+
+            if (files.length > 0) {
+                // Create a heading or instruction
+                 const instruction = document.createElement('p');
+                 instruction.innerHTML = '<strong>Enter a caption for each selected file:</strong>';
+                 captionsContainer.appendChild(instruction);
+
+                // Loop through selected files
+                for (let i = 0; i < files.length; i++) {
+                    const file = files[i];
+
+                    // Create a div for each file's row
+                    const entryDiv = document.createElement('div');
+                    entryDiv.className = 'caption-entry'; // Add a class for styling
+                    entryDiv.style.marginBottom = '15px'; // Basic spacing
+
+                    // Create label with filename
+                    const label = document.createElement('label');
+                    label.htmlFor = `caption-${i}`;
+                    // Display filename, escape HTML to prevent XSS if filename contains tags
+                    label.textContent = `Caption for: ${file.name}`;
+                    label.style.fontWeight = 'normal'; // Adjust styling as needed
+                    label.style.display = 'block';
+                    label.style.marginBottom = '3px';
+
+                    // Create caption input field
+                    const input = document.createElement('input');
+                    input.type = 'text';
+                    input.name = 'captions'; // IMPORTANT: Use the same name for all
+                    input.id = `caption-${i}`;
+                    input.required = true; // Make caption required
+                    input.placeholder = 'Enter caption here';
+                    input.style.width = '90%'; // Adjust styling
+                    input.style.maxWidth = '500px';
+
+                    // Append label and input to the div
+                    entryDiv.appendChild(label);
+                    entryDiv.appendChild(input);
+
+                    // Append the entry div to the main container
+                    captionsContainer.appendChild(entryDiv);
+                }
+                submitButton.disabled = false; // Enable submit button if files selected
+            } else {
+                 // No files selected, clear container and disable button
+                captionsContainer.innerHTML = '';
+                submitButton.disabled = true;
+            }
+        };
+
+        // Add event listener to file input
+        if (fileInput && captionsContainer && submitButton) {
+            fileInput.addEventListener('change', generateCaptionFields);
+             // Initially disable submit button until files are selected
+             submitButton.disabled = true;
+             // Call once on load in case of browser back-navigation preserving file selection
+             generateCaptionFields();
+        } else {
+             console.error("Required elements for multi-upload JS not found (photos, caption-fields-container, submit-button).");
+        }
+    });
+</script>
+{# --- End of JavaScript --- #}
+
+{% endblock %}

@@ -1,0 +1,286 @@
+/* static/style.css - Retro Whimsy UI Theme - FINAL CLEANUP */
+
+/* --- Base Styles --- */
+body {
+    font-family: 'Fredoka', sans-serif;
+    background-color: #F4DCE2; /* Light Pink background */
+    color: #3B1D1F; /* Dark brown text */
+    margin: 0; padding: 20px; line-height: 1.6;
+}
+
+.content {
+    max-width: 1000px; margin: 20px auto; padding: 20px;
+    background-color: #FFF8D6; /* Light Yellow content box */
+    border: 2px solid #3B1D1F; /* Dark brown outline */ border-radius: 8px;
+    box-shadow: 4px 4px 0px 0px #3B1D1F; /* Dark brown shadow */
+}
+
+/* Headings */
+h1, h2, h3 { font-family: 'Fredoka', sans-serif; font-weight: 700; color: #3B1D1F; margin-top: 1em; margin-bottom: 0.6em; }
+h1 { font-size: 2.4em; text-align: center; margin-bottom: 1em; }
+h2 { font-size: 1.8em; }
+
+/* Links */
+a { color: #FF8B8B; text-decoration: none; font-weight: 700; transition: color 0.2s ease; }
+a:hover, a:focus { color: #FFD166; text-decoration: underline; }
+
+/* Navigation */
+nav {
+    font-family: 'Fredoka', sans-serif; text-align: center; padding: 10px 0; margin-bottom: 20px;
+    background-color: #FFF4D9; /* Pastel yellow */ border: 2px solid #3B1D1F; /* Dark brown */
+    border-radius: 15px; /* Rounded */
+}
+nav a { margin: 0 15px; font-size: 1.1em; color: #3B1D1F; }
+
+hr { display: none; }
+
+/* --- Flash Messages --- */
+.flashes { list-style: none; padding: 0; margin-bottom: 20px; }
+.flashes li {
+    font-family: 'Fredoka', sans-serif; padding: 12px 18px; margin-bottom: 10px; border: 2px solid #3B1D1F;
+    border-radius: 8px; font-weight: 700; box-shadow: 3px 3px 0px 0px #3B1D1F; color: #3B1D1F;
+}
+.flashes .success { background-color: #C8FACC; }
+.flashes .error { background-color: #FFB6C1; }
+.flashes .info, .flashes .warning { background-color: #FFF1A6; }
+
+
+/* --- Form Styling --- */
+label { font-family: 'Fredoka', sans-serif; display: block; margin-bottom: 5px; font-weight: 700; color: #3B1D1F; }
+
+/* Text inputs (Caption INPUT on Upload page) */
+input[type="text"], input[type="password"], input[type="email"], textarea {
+    font-family: 'Fredoka', sans-serif; display: block; width: 95%; max-width: 400px; padding: 10px 12px; margin-bottom: 15px;
+    background-color: #FFF8E1; /* Cream */ border: 2px solid #FFD166; /* Mustard */ border-radius: 8px;
+    font-size: 1em; color: #3B1D1F; box-shadow: inset 2px 2px 0px 0px rgba(0, 0, 0, 0.1);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* File input */
+input[type="file"] { font-family: 'Fredoka', sans-serif; display: block; width: 95%; max-width: 400px; margin-bottom: 15px; font-size: 1em; color: #3B1D1F; }
+input[type="file"]::file-selector-button {
+    font-family: 'Fredoka', sans-serif; font-weight: 700; color: #3B1D1F; background-color: #FFDC96;
+    border: 2px solid #3B1D1F; padding: 8px 12px; border-radius: 8px; margin-right: 10px; cursor: pointer;
+    box-shadow: 2px 2px 0px 0px #3B1D1F; transition: background-color 0.2s ease, box-shadow 0.2s ease;
+}
+input[type="file"]::file-selector-button:hover { background-color: #FFD166; box-shadow: none; }
+
+/* Input focus style */
+input[type="text"]:focus, input[type="password"]:focus, input[type="email"]:focus,
+input[type="file"]:focus, textarea:focus {
+    outline: none; border-color: #FF8B8B;
+    box-shadow: inset 2px 2px 0px 0px rgba(0, 0, 0, 0.1), 0 0 0 2px #FFC8C8;
+}
+
+
+/* --- Button Styling --- */
+/* Base style for ALL buttons and link-buttons */
+button, input[type="submit"], a.button {
+    font-family: 'Fredoka', sans-serif; display: inline-block; padding: 10px 20px; margin: 5px 5px 5px 0;
+    border: 2px solid #3B1D1F; border-radius: 8px; font-size: 1em; font-weight: 700; cursor: pointer;
+    text-align: center; text-decoration: none; color: #3B1D1F; background-color: #FFA69E; /* Pastel coral */
+    box-shadow: 3px 3px 0px 0px #3B1D1F; /* Base Shadow */
+    transition: background-color 0.2s ease, box-shadow 0.2s ease, transform 0.1s ease;
+}
+a.button { color: #3B1D1F; }
+
+button:hover, input[type="submit"]:hover, a.button:hover { background-color: #F76C6C; box-shadow: 1px 1px 0px 0px #3B1D1F; color: #3B1D1F; }
+button:active, input[type="submit"]:active, a.button:active { background-color: #E05555; box-shadow: none; transform: translate(2px, 2px); }
+
+/* Specific Button Colors */
+button.random-button { background-color: #FF8B8B; } button.random-button:hover { background-color: #FF6F6F; } button.random-button:active { background-color: #E05050; }
+button.delete-button { background-color: #FF6B6B; color: #FFFFFF; } button.delete-button:hover { background-color: #E05246; } button.delete-button:active { background-color: #C74338; }
+a.button.edit-button, button.edit-button { background-color: #FFE9A7; } a.button.edit-button:hover, button.edit-button:hover { background-color: #FFD166; } a.button.edit-button:active, button.edit-button:active { background-color: #FAD75F; }
+
+/* Cancel links */
+a.cancel-link { font-family: 'Fredoka', sans-serif; display: inline-block; margin-left: 10px; padding: 8px 15px; font-weight: 700; color: #585858; text-decoration: underline; border-radius: 8px; transition: background-color 0.2s ease, color 0.2s ease; box-shadow: none; }
+a.cancel-link:hover { background-color: #E0E0E0; color: #1E1E1E; }
+
+
+/* --- Manage Page Specific Styles (Grid) --- */
+.photo-management-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 25px; padding: 15px 0; }
+
+/* THIS IS THE ONLY RULE DEFINING .photo-item */
+.photo-item {
+    border: 2px solid #3B1D1F; /* Dark brown outline */
+    border-radius: 8px;        /* Rounded corners */
+    background-color: #FFF4D9; /* <<<< Pale yellow card background */
+    padding: 10px;
+    display: flex; flex-direction: column; align-items: center; text-align: center;
+    overflow: hidden;
+    box-shadow: 3px 3px 0px 0px #3B1D1F; /* Dark brown shadow */
+}
+
+/* Styling for the INNER THUMBNAIL container */
+.photo-thumbnail {
+    width: 100%; height: 140px; margin-bottom: 10px;
+    background-color: #F3E6CA; /* Cream background */
+    display: flex; justify-content: center; align-items: center; overflow: hidden;
+    border: 2px solid #3B1D1F; /* Dark brown border */
+    border-radius: 8px; /* Rounded corners */
+    box-shadow: 3px 3px 0px 0px #3B1D1F; /* Dark brown shadow */
+    padding: 5px; box-sizing: border-box;
+}
+.photo-thumbnail img { display: block; width: 100%; height: 100%; object-fit: contain; }
+
+.photo-details { margin-bottom: 10px; width: 100%; word-wrap: break-word; flex-grow: 1; padding: 0 5px; }
+.photo-details .caption-preview { font-family: 'Fredoka', sans-serif; font-size: 0.95em; color: #3B1D1F; margin: 0; }
+
+.photo-actions { width: 100%; margin-top: auto; padding-top: 5px; }
+.photo-actions .button { padding: 6px 12px; font-size: 0.9em; margin: 3px 5px; }
+
+
+/* --- Random Photo Page Styles --- */
+.photo-display { margin-top: 20px; text-align: center; }
+.photo-display img { max-width: 90%; max-height: 60vh; border: 2px solid #3B1D1F; border-radius: 8px; box-shadow: 4px 4px 0px 0px #3B1D1F; background-color: #FFF8E1; padding: 5px; margin-bottom: 15px; }
+.photo-display p { font-family: 'Fredoka', sans-serif; color: #3B1D1F; font-weight: 700; font-size: 1.1em; }
+
+/* --- Edit Page Specific Styles --- */
+.edit-form-container { display: flex; flex-direction: column; align-items: center; }
+.edit-form-container .photo-preview img { max-width: 300px; max-height: 300px; margin-bottom: 15px; border: 2px solid #3B1D1F; border-radius: 8px; box-shadow: 3px 3px 0px 0px #3B1D1F; }
+.edit-form-container p strong { color: #3B1D1F; }
+.edit-form-container form div { margin-bottom: 10px; }
+
+/* --- Pagination Styles --- */
+.pagination {
+    text-align: center;
+    margin-top: 30px; /* Add space above pagination */
+    margin-bottom: 10px; /* Add space below */
+    padding: 10px 0;
+}
+
+.pagination ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: inline-block; /* Center the list items */
+}
+
+.pagination li {
+    display: inline-block; /* Make list items appear side-by-side */
+    margin: 0 3px; /* Spacing between page links */
+}
+
+.pagination .page-link {
+    font-family: 'Fredoka', sans-serif;
+    display: inline-block;
+    padding: 8px 15px;
+    border: 2px solid #3B1D1F; /* Dark brown outline */
+    border-radius: 8px;
+    font-size: 0.95em;
+    font-weight: 700;
+    text-decoration: none;
+    background-color: #FFF8E1; /* Cream background */
+    color: #3B1D1F; /* Dark brown text */
+    box-shadow: 2px 2px 0px 0px #3B1D1F; /* Mini shadow */
+    transition: background-color 0.2s ease, box-shadow 0.2s ease, transform 0.1s ease;
+}
+
+.pagination a.page-link:hover {
+    background-color: #FFE9A7; /* Pastel yellow on hover */
+    box-shadow: 1px 1px 0px 0px #3B1D1F;
+    text-decoration: none; /* Remove underline on hover */
+}
+
+.pagination a.page-link:active {
+    background-color: #FFD166; /* Darker yellow on active */
+    box-shadow: none;
+    transform: translate(1px, 1px);
+}
+
+/* Style for the CURRENT page number */
+.pagination .page-link.current {
+    background-color: #FFA69E; /* Coral Pink */
+    color: #3B1D1F;
+    font-weight: bold;
+    box-shadow: none; /* No shadow for active page */
+    cursor: default; /* Indicate it's not clickable */
+}
+
+/* Style for DISABLED Previous/Next links */
+.pagination li.disabled .page-link {
+    background-color: #E0E0E0; /* Greyed out */
+    color: #888888;
+    border-color: #AAAAAA;
+    box-shadow: none;
+    cursor: not-allowed;
+}
+
+/* --- Styles for Dynamic Caption Fields on Upload Page --- */
+#caption-fields-container {
+    border: 1px dashed #FFA69E; /* Soft dashed border */
+    padding: 15px;
+    margin-top: 15px;
+    margin-bottom: 20px;
+    border-radius: 8px;
+    background-color: #FFF8E1; /* Cream background */
+}
+
+#caption-fields-container p strong {
+    color: #3B1D1F;
+    margin-bottom: 10px;
+    display: block;
+}
+
+.caption-entry {
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #F3E6CA; /* Light separator */
+}
+
+.caption-entry:last-child {
+    border-bottom: none; /* No border for the last item */
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.caption-entry label {
+    font-weight: normal; /* Make filename label less prominent */
+    font-size: 0.9em;
+    color: #555; /* Slightly lighter text for filename */
+    margin-bottom: 4px;
+    display: block;
+}
+
+/* Use existing input[type="text"] styles, but allow override if needed */
+.caption-entry input[type="text"] {
+    width: 95%; /* Adjust width as needed */
+    max-width: 500px;
+    /* Inherits font, padding, border etc from general input styles */
+}
+
+/* Style for the overall form group containing the file input */
+.form-group {
+    margin-bottom: 15px;
+}
+.form-group label {
+     /* Inherits base label style */
+     margin-bottom: 8px;
+}
+.form-group small {
+    display: block;
+    font-size: 0.85em;
+    color: #555;
+    margin-top: 5px;
+}
+
+/* Style submit button if needed, e.g., disable state */
+#submit-button:disabled {
+    background-color: #cccccc;
+    border-color: #aaaaaa;
+    color: #666666;
+    cursor: not-allowed;
+    box-shadow: none;
+    transform: none;
+}
+
+
+/* --- Flash Message Detail Styling (Optional) --- */
+.flashes .error_detail {
+    background-color: #FFD1D1; /* Lighter red for details */
+    border-color: #FF6B6B;
+    font-weight: normal; /* Less emphasis */
+    font-size: 0.95em;
+    margin-left: 20px; /* Indent details */
+    box-shadow: 1px 1px 0px 0px #3B1D1F;
+}

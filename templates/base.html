@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Photo App{% endblock %}</title> {# Simplified default title #}
+
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;700&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+
+    {% block styles %}
+    {% endblock %}
+
+</head>
+<body>
+    {# --- Updated Navigation --- #}
+    <nav>
+        <a href="{{ url_for('index_page') }}">Home</a> | {# <<< Added Home link #}
+        <a href="{{ url_for('upload_page') }}">Upload</a> | {# Text simplified #}
+        <a href="{{ url_for('random_display_page') }}">Random</a> | {# Text simplified #}
+        <a href="{{ url_for('manage_photos') }}">Manage</a> {# Text simplified #}
+    </nav>
+    {# Removed <hr> as it was hidden by CSS anyway #}
+
+    <div class="content">
+        {# Flash messages remain the same #}
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            <ul class="flashes">
+              {% for category, message in messages %}
+                {# Use a class that matches CSS for error details #}
+                <li class="{{ category if category != 'error_detail' else 'error_detail' }}">{{ message }}</li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+        {% endwith %}
+
+        {% block content %}
+        {% endblock %}
+
+    </div> {# End of content div #}
+</body>
+</html>
