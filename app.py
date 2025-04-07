@@ -310,13 +310,13 @@ def create_album():
             print(f"Error creating album: {e}"); flash(f"Error creating album: {e}", 'error')
             if os.path.exists(filepath):
             # Indent this block
-            try:
-                os.remove(filepath) # Or os.unlink()
-                print(f"  Cleaned up cover file after error: {filepath}")
-            except OSError as cleanup_e:
-                print(f"  Error during cover file cleanup: {cleanup_e}")
-                pass # Ignore cleanup error
-        #    Ensure this return is outside the 'if os.path.exists...' but inside the except
+                try:
+                    os.remove(filepath) # Or os.unlink()
+                    print(f"  Cleaned up cover file after error: {filepath}")
+                except OSError as cleanup_e:
+                    print(f"  Error during cover file cleanup: {cleanup_e}")
+                    pass # Ignore cleanup error
+            #    Ensure this return is outside the 'if os.path.exists...' but inside the except
             return render_template('create_album.html', title=title, description=description, album=None)
 
     # GET request
