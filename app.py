@@ -614,7 +614,12 @@ def edit_album(album_id, album):
             return redirect(url_for('album_home', album_id=album_id))
         except Exception as e:
             db.rollback(); print(f"Error updating album {album_id}: {e}"); flash(f"Error updating album: {e}", 'error')
-            if saved_new_file and new_cover_filepath and os.path.exists(new_cover_filepath): try: os.remove(new_cover_filepath); print(f"Cleaned up new cover: {new_cover_filepath}"); except OSError: pass
+            if saved_new_file and new_cover_filepath and os.path.exists(new_cover_filepath):
+                try:
+                    os.remove(new_cover_filepath);
+                    print(f"Cleaned up new cover: {new_cover_filepath}");
+                except OSError:
+                    pass
             return render_template('edit_album.html', album=album, current_title=request.form.get('title', album['title']), current_description=request.form.get('description', album['description']))
 
     # --- Handle GET Request ---
